@@ -28,6 +28,8 @@ const get = <T>(url: string, params?: object) => apiClient.get<T>(url, { params 
 // ---------- Auth ----------
 export const authApi = {
   login: (body: LoginRequest) => apiClient.post<AuthResponse>('/api/auth/login', body).then((r) => r.data),
+  refresh: (refreshToken: string) =>
+    apiClient.post<AuthResponse>('/api/auth/refresh', { refreshToken }).then((r) => r.data),
   me: () => get<UserProfileResponse>('/api/auth/me'),
   logout: () => apiClient.post('/api/auth/logout').catch(() => undefined),
 };
@@ -39,6 +41,7 @@ export const restaurantApi = {
   menu: (id: number) => get<RestaurantMenuResponse>(`/api/restaurants/${id}/menu`),
   search: (keyword: string) =>
     get<PageResponse<RestaurantResponse>>('/api/search', { keyword, page: 0, size: 50 }),
+  ratings: (id: number) => get<RatingResponse[]>(`/api/restaurants/${id}/ratings`),
 };
 
 // ---------- Cart ----------
@@ -91,9 +94,13 @@ export const addressApi = {
 
 // ---------- Riders & deliveries ----------
 export const deliveryApi = {
-  /** Admin-only on the live backend (riders receive 403). */
+  /** Admin-only. */
   list: (params: { riderId?: number; orderId?: number; status?: string } = {}) =>
     get<DeliveryAssignmentResponse[]>('/api/delivery-assignments', params),
+  /** The signed-in rider's own assignments. */
+  mine: () => get<DeliveryAssignmentResponse[]>('/api/delivery-assignments/me'),
+  /** Assignments for one order — visible to its customer, its restaurant owner and admins. */
+  forOrder: (orderId: number) => get<DeliveryAssignmentResponse[]>(`/api/delivery-assignments/order/${orderId}`),
   get: (id: number) => get<DeliveryAssignmentResponse>(`/api/delivery-assignments/${id}`),
   create: (body: DeliveryAssignmentRequest) =>
     apiClient.post<DeliveryAssignmentResponse>('/api/delivery-assignments', body).then((r) => r.data),
@@ -105,4 +112,8 @@ export const deliveryApi = {
     apiClient.patch<DeliveryAssignmentResponse>(`/api/delivery-assignments/${id}/deliver`).then((r) => r.data),
   riderByUser: (userId: number) => get<RiderProfileResponse>(`/api/riders/user/${userId}`),
   riders: (params: { availability?: boolean } = {}) => get<RiderProfileResponse[]>('/api/riders', params),
+  setAvailability: (riderId: number, availability: boolean) =>
+    apiClient
+      .patch<RiderProfileResponse>(`/api/riders/${riderId}/availability`, { availability })
+      .then((r) => r.data),
 };

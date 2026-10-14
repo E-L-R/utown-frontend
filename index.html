@@ -1,14 +1,31 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>UTown — food delivery, end to end</title>
+    <meta name="description" content="A full-stack food delivery demo: order as a customer, cook in the kitchen, deliver as a rider and dispatch from operations — React + Spring Boot." />
+    <meta name="theme-color" content="#0f0d0c" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UTown Delivery · Modern Food Ordering</title>
-    <meta name="description" content="Fast, modern, and delightful food delivery from the best local restaurants." />
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <meta property="og:title" content="UTown — food delivery, end to end" />
+    <meta property="og:description" content="Customer, kitchen, rider and operations apps on one real-time order flow." />
+    <meta property="og:image" content="/images/hero.webp" />
+    <meta property="og:type" content="website" />
+    <script>
+      // Apply the saved/system theme before first paint to avoid a flash.
+      try {
+        var t = localStorage.getItem('utown.theme');
+        if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preload" as="image" href="/images/hero.webp" type="image/webp" />
   </head>
   <body>
     <div id="root"></div>

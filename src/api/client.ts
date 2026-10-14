@@ -73,9 +73,9 @@ apiClient.interceptors.response.use(
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return apiClient(originalRequest);
         } catch {
+          // Protected routes redirect on their own; public pages just fall back to guest.
           tokenStore.clear();
           window.dispatchEvent(new Event('auth:logout'));
-          if (window.location.pathname !== '/login') window.location.href = '/login';
         }
       }
     }
@@ -92,6 +92,7 @@ export function getErrorMessage(err: unknown, fallback = 'Something went wrong')
       if (data.detail) return data.detail;
       if (data.title) return data.title;
     }
+    if (err.response?.status === 429) return 'Too many requests — give it a few seconds and try again.';
     if (err.code === 'ECONNABORTED') return 'The server took too long to respond. Please retry.';
     if (!err.response) return 'Network error — is the backend reachable?';
     return `${fallback} (HTTP ${err.response.status})`;

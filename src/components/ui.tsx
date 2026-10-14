@@ -1,23 +1,39 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { CircleAlert, LoaderCircle, RefreshCw, X } from 'lucide-react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { CircleAlert, LoaderCircle, RefreshCw, Star, X } from 'lucide-react';
 import { createPortal } from 'react-dom';
-import { cx, fallbackImage, type Tone } from '../lib/format';
+import { cx, ORDER_STATUS_LABEL, ORDER_STATUS_TONE, isLiveOrder, type Art as ArtSpec, type Tone } from '../lib/format';
 import { getErrorMessage } from '../api/client';
+import type { OrderStatus } from '../types/api';
 
 export function Spinner({ size = 18 }: { size?: number }) {
   return <LoaderCircle size={size} className="spin" aria-hidden />;
 }
 
-export function Badge({ tone = 'neutral', children, dot }: { tone?: Tone; children: ReactNode; dot?: boolean }) {
+export function Badge({ tone = 'neutral', children, dot, live }: { tone?: Tone | 'solid'; children: ReactNode; dot?: boolean; live?: boolean }) {
   return (
-    <span className={`badge badge--${tone}`}>
+    <span className={cx('badge', `badge--${tone}`, live && 'badge--live')}>
       {dot && <span className="badge__dot" />}
       {children}
     </span>
   );
 }
 
-/** Render free tier cold-starts can take ~30s; tell the user after a few seconds. */
+export function StatusBadge({ status }: { status: OrderStatus }) {
+  return (
+    <Badge tone={ORDER_STATUS_TONE[status]} dot live={isLiveOrder(status)}>
+      {ORDER_STATUS_LABEL[status]}
+    </Badge>
+  );
+}
+
+/** Sets the browser tab title while a page is mounted. */
+export function useDocumentTitle(title?: string) {
+  useEffect(() => {
+    document.title = title ? `${title} · UTown` : 'UTown — food delivery, end to end';
+  }, [title]);
+}
+
+/** Render's free tier cold-starts in ~30 s; tell people after a few seconds. */
 function useSlowHint(delay = 4000) {
   const [slow, setSlow] = useState(false);
   useEffect(() => {
@@ -30,22 +46,25 @@ function useSlowHint(delay = 4000) {
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
   const slow = useSlowHint();
   return (
-    <div className="state">
+    <div className="state" role="status">
       <Spinner size={28} />
       <p>{label}</p>
-      {slow && <p className="muted small">Waking up the server — first request can take up to 30s.</p>}
+      {slow && <p className="small">Waking up the server — the first request can take up to 30 seconds.</p>}
     </div>
   );
 }
 
 export function SkeletonGrid({ count = 6 }: { count?: number }) {
   return (
-    <div className="grid grid--cards">
+    <div className="rest-grid" aria-hidden>
       {Array.from({ length: count }, (_, i) => (
         <div key={i} className="card skeleton-card">
-          <div className="skeleton skeleton--img" />
-          <div className="skeleton skeleton--line" />
-          <div className="skeleton skeleton--line short" />
+          <div className="skeleton" />
+          <div className="stack--sm stack" style={{ padding: 16 }}>
+            <div className="skeleton" style={{ height: 18, width: '60%' }} />
+            <div className="skeleton" style={{ height: 14, width: '90%' }} />
+            <div className="skeleton" style={{ height: 14, width: '40%' }} />
+          </div>
         </div>
       ))}
     </div>
@@ -55,11 +74,13 @@ export function SkeletonGrid({ count = 6 }: { count?: number }) {
 export function ErrorState({ error, onRetry, title = "Couldn't load this" }: { error: unknown; onRetry?: () => void; title?: string }) {
   return (
     <div className="state state--error">
-      <CircleAlert size={28} />
+      <div className="state__icon">
+        <CircleAlert size={28} />
+      </div>
       <h3>{title}</h3>
-      <p className="muted">{getErrorMessage(error)}</p>
+      <p>{getErrorMessage(error)}</p>
       {onRetry && (
-        <button className="btn btn--ghost" onClick={onRetry}>
+        <button className="btn btn--secondary" onClick={onRetry}>
           <RefreshCw size={16} /> Try again
         </button>
       )}
@@ -67,29 +88,79 @@ export function ErrorState({ error, onRetry, title = "Couldn't load this" }: { e
   );
 }
 
-export function EmptyState({ icon, title, children }: { icon: ReactNode; title: string; children?: ReactNode }) {
+export function EmptyState({ icon, title, children, boxed }: { icon: ReactNode; title: string; children?: ReactNode; boxed?: boolean }) {
   return (
-    <div className="state">
+    <div className={cx('state', boxed && 'state--boxed')}>
       <div className="state__icon">{icon}</div>
       <h3>{title}</h3>
-      {children && <div className="muted">{children}</div>}
+      {children && <div className="stack stack--sm" style={{ alignItems: 'center' }}>{children}</div>}
     </div>
   );
 }
 
-/** Image with graceful fallback to local editorial photography. */
-export function SmartImage({ src, alt, hints = [], className }: { src?: string | null; alt: string; hints?: (string | null | undefined)[]; className?: string }) {
-  const fallback = fallbackImage(alt, ...hints);
-  const [current, setCurrent] = useState(src || fallback);
-  useEffect(() => setCurrent(src || fallback), [src, fallback]);
+/** A photo when we have a matching one, otherwise an emoji "plate" on a cuisine-tinted gradient. */
+export function Art({ art, src, alt = '', className, style }: { art: ArtSpec; src?: string | null; alt?: string; className?: string; style?: CSSProperties }) {
+  const remote = src && /^https?:\/\//.test(src) && !src.includes('example.com') ? src : null;
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [remote]);
+  const photo = (!failed && remote) || art.photo;
   return (
-    <img
-      src={current}
-      alt={alt}
-      loading="lazy"
-      className={className}
-      onError={() => current !== fallback && setCurrent(fallback)}
-    />
+    <div className={cx('art', photo && 'art--photo', className)} style={{ '--hue': art.hue, ...style } as CSSProperties}>
+      {photo ? (
+        <img src={photo} alt={alt} loading="lazy" onError={() => remote && setFailed(true)} />
+      ) : (
+        <span className="art__emoji" role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={!alt}>
+          {art.emoji}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function Stars({ value, size = 14 }: { value: number; size?: number }) {
+  return (
+    <span className="stars" aria-label={`${value} out of 5`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <Star key={n} size={size} fill={n <= Math.round(value) ? 'currentColor' : 'none'} />
+      ))}
+    </span>
+  );
+}
+
+export function Stat({ icon, label, value, hint }: { icon: ReactNode; label: string; value: ReactNode; hint?: ReactNode }) {
+  return (
+    <div className="stat">
+      <span className="stat__label">
+        {icon} {label}
+      </span>
+      <span className="stat__value">{value}</span>
+      {hint && <span className="stat__hint">{hint}</span>}
+    </div>
+  );
+}
+
+export function Segmented<T extends string>({
+  value,
+  onChange,
+  options,
+  label,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: ReactNode; count?: number }[];
+  label: string;
+}) {
+  return (
+    <div className="seg" role="tablist" aria-label={label}>
+      {options.map((o) => (
+        <button key={o.value} role="tab" aria-selected={value === o.value} className={cx(value === o.value && 'is-active')} onClick={() => onChange(o.value)}>
+          {o.label}
+          {o.count != null && <span className="seg__count">{o.count}</span>}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -98,20 +169,21 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
     if (!open) return;
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
+      document.body.style.overflow = prev;
     };
   }, [open, onClose]);
 
   if (!open) return null;
   return createPortal(
     <div className="overlay" onMouseDown={onClose}>
-      <div className={cx('modal', wide && 'modal--wide')} role="dialog" aria-modal="true" onMouseDown={(e) => e.stopPropagation()}>
+      <div className={cx('modal', wide && 'modal--wide')} role="dialog" aria-modal="true" aria-label={typeof title === 'string' ? title : undefined} onMouseDown={(e) => e.stopPropagation()}>
         <header className="modal__head">
           <h2>{title}</h2>
-          <button className="icon-btn" onClick={onClose} aria-label="Close">
+          <button className="icon-btn icon-btn--sm" onClick={onClose} aria-label="Close">
             <X size={18} />
           </button>
         </header>
@@ -123,14 +195,14 @@ export function Modal({ open, onClose, title, children, footer, wide }: { open: 
   );
 }
 
-export function QuantityStepper({ value, onChange, min = 1, disabled }: { value: number; onChange: (v: number) => void; min?: number; disabled?: boolean }) {
+export function QuantityStepper({ value, onChange, min = 1, max = 50, disabled, large }: { value: number; onChange: (v: number) => void; min?: number; max?: number; disabled?: boolean; large?: boolean }) {
   return (
-    <div className="stepper">
-      <button type="button" disabled={disabled || value <= min} onClick={() => onChange(value - 1)} aria-label="Decrease">
+    <div className={cx('stepper', large && 'stepper--lg')}>
+      <button type="button" disabled={disabled || value <= min} onClick={() => onChange(value - 1)} aria-label="Decrease quantity">
         −
       </button>
-      <span>{value}</span>
-      <button type="button" disabled={disabled} onClick={() => onChange(value + 1)} aria-label="Increase">
+      <span aria-live="polite">{value}</span>
+      <button type="button" disabled={disabled || value >= max} onClick={() => onChange(value + 1)} aria-label="Increase quantity">
         +
       </button>
     </div>

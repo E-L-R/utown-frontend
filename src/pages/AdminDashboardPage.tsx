@@ -1,278 +1,226 @@
-import { useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Activity, Bike, CircleDollarSign, LayoutDashboard, Radio, Receipt, Send, Store } from 'lucide-react';
+import { useAllAssignments, useNow, useOrders, useRestaurants, useRiders } from '../hooks/queries';
+import { DispatchModal } from '../components/DispatchModal';
+import { Badge, EmptyState, ErrorState, LoadingState, Segmented, Stat, StatusBadge, useDocumentTitle } from '../components/ui';
 import {
-  Bike,
-  Clock,
-  Compass,
-  Package,
-  Plus,
-  RefreshCw,
-  Shield,
-  Store,
-} from 'lucide-react';
-import { deliveryApi } from '../api/endpoints';
-import { getErrorMessage } from '../api/client';
-import { useOrders, useRestaurants } from '../hooks/queries';
-import { trackAssignment } from '../hooks/trackedAssignments';
-import { useToast } from '../components/Toast';
-import { Badge, EmptyState, ErrorState, LoadingState, Modal, Spinner } from '../components/ui';
-import {
+  ACTIVE_ASSIGNMENT,
   ASSIGNMENT_LABEL,
-  ASSIGNMENT_TONE,
-  ORDER_STATUS_LABEL,
-  formatDateTime,
+  ORDER_FLOW,
+  ORDER_STEP_LABEL,
+  TRANSPORT_LABEL,
   formatMoney,
+  formatTime,
+  initials,
+  isLiveOrder,
+  minutesSince,
+  parseServerDate,
+  shortOrderNo,
 } from '../lib/format';
-import type { DeliveryAssignmentRequest } from '../types/api';
+import type { OrderResponse, OrderStatus } from '../types/api';
+
+const STATUS_COLOR: Partial<Record<OrderStatus, string>> = {
+  PENDING: 'var(--warn)',
+  ACCEPTED: 'var(--info)',
+  IN_PREPARATION: 'var(--accent)',
+  READY_FOR_PICKUP: '#c084fc',
+  OUT_FOR_DELIVERY: 'var(--success)',
+};
+
+type Filter = 'live' | 'all' | 'issues';
 
 export default function AdminDashboardPage() {
-  const qc = useQueryClient();
-  const { notify } = useToast();
+  useDocumentTitle('Operations');
+  const navigate = useNavigate();
+  const now = useNow(20_000);
+  const orders = useOrders({}, { poll: 6_000 });
+  const assignments = useAllAssignments();
+  const riders = useRiders();
   const { data: restaurants } = useRestaurants();
-  const { data: orders, refetch: refetchOrders } = useOrders({}, { poll: 10_000 });
+  // Until someone picks a tab, show live orders when there are any, otherwise everything.
+  const [picked, setFilter] = useState<Filter | null>(null);
+  const [dispatching, setDispatching] = useState<OrderResponse | null>(null);
 
-  const {
-    data: assignments,
-    isPending: assignmentsPending,
-    error: assignmentsError,
-    refetch: refetchAssignments,
-  } = useQuery({
-    queryKey: ['admin-assignments'],
-    queryFn: () => deliveryApi.list(),
-    refetchInterval: 10_000,
-  });
+  const all = useMemo(() => orders.data ?? [], [orders.data]);
+  const activeAssignments = (assignments.data ?? []).filter((a) => ACTIVE_ASSIGNMENT.includes(a.status));
+  const hasRider = (orderId: number) => activeAssignments.some((a) => a.orderId === orderId);
 
-  const { data: riders } = useQuery({
-    queryKey: ['admin-riders'],
-    queryFn: () => deliveryApi.riders(),
-  });
+  if (orders.isPending) return <LoadingState label="Loading operations…" />;
+  if (orders.error) return <div className="container page"><ErrorState error={orders.error} onRetry={() => orders.refetch()} /></div>;
 
-  // Dispatch Assignment Modal
-  const [dispatchModalOpen, setDispatchModalOpen] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState<number | ''>('');
-  const [selectedRiderId, setSelectedRiderId] = useState<number | ''>('');
+  const live = all.filter((o) => isLiveOrder(o.status));
+  const today = all.filter((o) => parseServerDate(o.createdAt)?.toDateString() === new Date().toDateString());
+  const gmv = today.filter((o) => !['CANCELLED', 'DECLINED'].includes(o.status)).reduce((s, o) => s + Number(o.totalAmount), 0);
+  const fleet = riders.data ?? [];
+  const online = fleet.filter((r) => r.availability && r.status === 'ACTIVE').length;
+  const needsRider = all
+    .filter((o) => ['ACCEPTED', 'IN_PREPARATION', 'READY_FOR_PICKUP'].includes(o.status) && !hasRider(o.id))
+    .sort((a, b) => (b.status === 'READY_FOR_PICKUP' ? 1 : 0) - (a.status === 'READY_FOR_PICKUP' ? 1 : 0) || a.id - b.id);
 
-  const dispatchMutation = useMutation({
-    mutationFn: (body: DeliveryAssignmentRequest) => deliveryApi.create(body),
-    onSuccess: (created) => {
-      qc.invalidateQueries({ queryKey: ['admin-assignments'] });
-      qc.invalidateQueries({ queryKey: ['orders'] });
-      // Record locally so rider view has this assignment immediately
-      trackAssignment(created.riderId, created.id);
-      notify(`Dispatched Assignment #${created.id} to rider!`, 'success');
-      setDispatchModalOpen(false);
-      setSelectedOrderId('');
-      setSelectedRiderId('');
-    },
-    onError: (err) => notify(getErrorMessage(err, 'Failed to dispatch assignment'), 'error'),
-  });
-
-  if (assignmentsPending) return <LoadingState label="Loading admin dispatch console…" />;
-  if (assignmentsError) {
-    return (
-      <div className="container section">
-        <ErrorState error={assignmentsError} onRetry={refetchAssignments} />
-      </div>
-    );
-  }
-
-  const allOrders = orders ?? [];
-  const allAssignments = assignments ?? [];
+  const filter: Filter = picked ?? (live.length ? 'live' : 'all');
+  const byStatus = ORDER_FLOW.slice(0, 5).map((s) => ({ s, n: live.filter((o) => o.status === s).length }));
+  const rows = (filter === 'live' ? live : filter === 'issues' ? all.filter((o) => o.status === 'CANCELLED' || o.status === 'DECLINED') : all).slice(0, 25);
+  const restName = (o: OrderResponse) => o.restaurantName ?? restaurants?.find((r) => r.id === o.restaurantId)?.name ?? `#${o.restaurantId}`;
 
   return (
-    <div className="container section admin-dashboard">
-      <div className="section-head row-between flex-wrap gap-md">
+    <div className="container page">
+      <div className="page-head">
         <div>
-          <div className="row items-center gap-xs text-accent text-sm font-semibold mb-xs">
-            <Shield size={18} /> Central Platform Oversight
-          </div>
-          <h1>Dispatch & Administration</h1>
-          <p className="muted">
-            Monitor restaurant orders, fleet riders, and dispatch deliveries.
-          </p>
+          <span className="eyebrow"><LayoutDashboard size={14} /> Operations</span>
+          <h1 style={{ marginTop: 6 }}>Platform control room</h1>
+          <p>Everything moving across UTown right now. Refreshes every few seconds.</p>
         </div>
-
-        <div className="row items-center gap-sm">
-          <button
-            className="btn btn--primary"
-            onClick={() => setDispatchModalOpen(true)}
-            id="open-dispatch-modal"
-          >
-            <Plus size={16} /> Dispatch Rider
-          </button>
-          <button
-            className="btn btn--ghost btn--sm"
-            onClick={() => {
-              refetchOrders();
-              refetchAssignments();
-            }}
-            title="Refresh"
-          >
-            <RefreshCw size={14} /> Refresh
-          </button>
-        </div>
+        <Badge tone="success" dot live>Live</Badge>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid--cards mt-md">
-        <div className="card p-md">
-          <div className="row items-center gap-sm muted text-xs uppercase font-semibold">
-            <Store size={16} className="text-accent" /> Active Restaurants
-          </div>
-          <div className="text-2xl font-bold mt-xs">{restaurants?.length ?? 0}</div>
-        </div>
-
-        <div className="card p-md">
-          <div className="row items-center gap-sm muted text-xs uppercase font-semibold">
-            <Clock size={16} className="text-accent" /> Total Platform Orders
-          </div>
-          <div className="text-2xl font-bold mt-xs">{allOrders.length}</div>
-        </div>
-
-        <div className="card p-md">
-          <div className="row items-center gap-sm muted text-xs uppercase font-semibold">
-            <Bike size={16} className="text-accent" /> Registered Riders
-          </div>
-          <div className="text-2xl font-bold mt-xs">{riders?.length ?? 0}</div>
-        </div>
-
-        <div className="card p-md">
-          <div className="row items-center gap-sm muted text-xs uppercase font-semibold">
-            <Package size={16} className="text-accent" /> Delivery Assignments
-          </div>
-          <div className="text-2xl font-bold mt-xs">{allAssignments.length}</div>
-        </div>
+      <div className="stats">
+        <Stat icon={<Activity size={14} />} label="Live orders" value={live.length} hint={`${live.filter((o) => o.status === 'PENDING').length} waiting on a kitchen`} />
+        <Stat icon={<Receipt size={14} />} label="Orders today" value={today.length} hint={`${all.length} all-time`} />
+        <Stat icon={<CircleDollarSign size={14} />} label="GMV today" value={formatMoney(gmv)} hint="Excludes cancelled & declined" />
+        <Stat icon={<Bike size={14} />} label="Riders online" value={`${online}/${fleet.length}`} hint={`${activeAssignments.length} on a delivery`} />
       </div>
 
-      {/* Delivery Assignments Table / Grid */}
-      <div className="mt-xl">
-        <div className="row-between items-center mb-md">
-          <h2 className="text-xl">Delivery Assignments Fleet</h2>
-        </div>
-
-        {allAssignments.length === 0 ? (
-          <EmptyState
-            icon={<Compass size={32} />}
-            title="No delivery assignments yet"
-          >
-            <p>Click "Dispatch Rider" above to assign an active restaurant order to a rider.</p>
-          </EmptyState>
-        ) : (
-          <div className="panel overflow-hidden p-0">
-            <div className="table-responsive">
-              <table className="admin-table w-full text-left">
-                <thead>
-                  <tr className="border-b bg-surface-subtle text-xs muted font-semibold">
-                    <th className="p-sm">Assignment ID</th>
-                    <th className="p-sm">Order #</th>
-                    <th className="p-sm">Restaurant</th>
-                    <th className="p-sm">Rider Name</th>
-                    <th className="p-sm">Transport</th>
-                    <th className="p-sm">Status</th>
-                    <th className="p-sm">Assigned At</th>
-                  </tr>
-                </thead>
-                <tbody className="text-sm">
-                  {allAssignments.map((a) => (
-                    <tr key={a.id} className="border-b hover:bg-surface-subtle">
-                      <td className="p-sm font-semibold mono">#{a.id}</td>
-                      <td className="p-sm mono">
-                        {a.orderNumber ? a.orderNumber.slice(-8) : `Order #${a.orderId}`}
-                      </td>
-                      <td className="p-sm">{a.restaurantName || `Restaurant #${a.restaurantId}`}</td>
-                      <td className="p-sm font-medium">{a.riderName || `Rider #${a.riderId}`}</td>
-                      <td className="p-sm text-xs muted">{a.transportType || 'MOTORCYCLE'}</td>
-                      <td className="p-sm">
-                        <Badge tone={ASSIGNMENT_TONE[a.status]} dot>
-                          {ASSIGNMENT_LABEL[a.status]}
-                        </Badge>
-                      </td>
-                      <td className="p-sm text-xs muted">
-                        {formatDateTime(a.assignedAt)}
-                      </td>
-                    </tr>
+      <div className="ops-grid">
+        <div className="stack">
+          <section className="panel">
+            <header className="panel__head">
+              <h2><Radio size={18} /> Live pipeline</h2>
+              <span className="small muted">{live.length} in flight</span>
+            </header>
+            {live.length === 0 ? (
+              <p className="muted small">No live orders. Place one as the customer to watch it move through here.</p>
+            ) : (
+              <>
+                <div className="status-bar" role="img" aria-label="Live orders by status">
+                  {byStatus.filter((b) => b.n > 0).map((b) => (
+                    <span key={b.s} style={{ flexGrow: b.n, background: STATUS_COLOR[b.s] }} title={`${ORDER_STEP_LABEL[b.s]}: ${b.n}`} />
                   ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+                </div>
+                <div className="legend">
+                  {byStatus.map((b) => (
+                    <span key={b.s}><i style={{ background: STATUS_COLOR[b.s] }} /> {ORDER_STEP_LABEL[b.s]} · {b.n}</span>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="panel" aria-labelledby="queue-title">
+            <header className="panel__head">
+              <h2 id="queue-title"><Send size={18} /> Needs a rider</h2>
+              <Badge tone={needsRider.length ? 'warn' : 'success'}>{needsRider.length || 'All covered'}</Badge>
+            </header>
+            {needsRider.length === 0 ? (
+              <p className="muted small">Every accepted order has a rider. New ones show up here as kitchens accept them.</p>
+            ) : (
+              needsRider.map((o) => (
+                <div key={o.id} className="queue-item">
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row row--wrap">
+                      <strong>{restName(o)}</strong>
+                      <StatusBadge status={o.status} />
+                    </div>
+                    <p className="small muted truncate">
+                      <span className="mono">#{shortOrderNo(o.orderNumber)}</span> · {o.deliveryAddress ?? 'Customer address'} · {minutesSince(o.createdAt, now)} min old
+                    </p>
+                  </div>
+                  <div className="queue-item__actions">
+                    <button className="btn btn--primary btn--sm" onClick={() => setDispatching(o)} id={`dispatch-${o.id}`}>
+                      <Bike size={14} /> Assign rider
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </section>
+
+          <section className="panel">
+            <header className="panel__head">
+              <h2><Receipt size={18} /> Orders</h2>
+              <Segmented<Filter>
+                label="Filter orders"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'live', label: 'Live', count: live.length },
+                  { value: 'all', label: 'All', count: all.length },
+                  { value: 'issues', label: 'Cancelled' },
+                ]}
+              />
+            </header>
+            {rows.length === 0 ? (
+              <EmptyState icon={<Receipt size={24} />} title="Nothing here" />
+            ) : (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr><th>Order</th><th>Restaurant</th><th>Status</th><th>Rider</th><th>Total</th><th>Placed</th></tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((o) => {
+                      const a = (assignments.data ?? []).find((x) => x.orderId === o.id && x.status !== 'CANCELLED');
+                      return (
+                        <tr key={o.id} className="is-link" onClick={() => navigate(`/orders/${o.id}`)}>
+                          <td className="mono">#{shortOrderNo(o.orderNumber)}</td>
+                          <td>{restName(o)}</td>
+                          <td><StatusBadge status={o.status} /></td>
+                          <td className="muted">{a?.riderName ?? '—'}</td>
+                          <td>{formatMoney(o.totalAmount)}</td>
+                          <td className="muted">{formatTime(o.createdAt)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <div className="stack">
+          <section className="panel">
+            <header className="panel__head">
+              <h2><Bike size={18} /> Fleet</h2>
+              <span className="small muted">{online} online</span>
+            </header>
+            {fleet.length === 0 && <p className="muted small">No riders registered.</p>}
+            {fleet.map((r) => {
+              const job = activeAssignments.find((a) => a.riderId === r.id);
+              const state = job ? 'is-busy' : r.availability && r.status === 'ACTIVE' ? 'is-on' : '';
+              return (
+                <div key={r.id} className="fleet-item">
+                  <span className="avatar role--rider">{initials(r.userName)}</span>
+                  <span className="grow" style={{ minWidth: 0 }}>
+                    <strong style={{ display: 'block' }} className="truncate">{r.userName ?? `Rider #${r.id}`}</strong>
+                    <span className="small muted truncate" style={{ display: 'block' }}>
+                      {job ? `${ASSIGNMENT_LABEL[job.status]} · ${job.restaurantName}` : `${TRANSPORT_LABEL[r.transportType]} · ${r.availability ? 'available' : 'offline'}`}
+                    </span>
+                  </span>
+                  <span className={`presence ${state}`} title={state === 'is-busy' ? 'On a job' : state ? 'Available' : 'Offline'} />
+                </div>
+              );
+            })}
+          </section>
+
+          <section className="panel">
+            <header className="panel__head"><h2><Store size={18} /> Restaurants</h2></header>
+            {(restaurants ?? []).map((r) => {
+              const n = live.filter((o) => o.restaurantId === r.id).length;
+              const open = r.status === 'OPEN' && r.isOpenNow;
+              return (
+                <div key={r.id} className="fleet-item">
+                  <span className={`presence ${open ? 'is-on' : ''}`} />
+                  <span className="grow truncate">{r.name}</span>
+                  {n > 0 ? <Badge tone="accent">{n} live</Badge> : <span className="tiny muted">{open ? 'Open' : 'Closed'}</span>}
+                </div>
+              );
+            })}
+          </section>
+        </div>
       </div>
 
-      {/* Dispatch Modal */}
-      <Modal
-        open={dispatchModalOpen}
-        onClose={() => setDispatchModalOpen(false)}
-        title="Dispatch Delivery Assignment"
-        footer={
-          <div className="modal-cta">
-            <button className="btn btn--ghost" onClick={() => setDispatchModalOpen(false)}>
-              Cancel
-            </button>
-            <button
-              className="btn btn--primary grow"
-              disabled={
-                dispatchMutation.isPending ||
-                !selectedOrderId ||
-                !selectedRiderId
-              }
-              onClick={() =>
-                dispatchMutation.mutate({
-                  orderId: Number(selectedOrderId),
-                  riderId: Number(selectedRiderId),
-                })
-              }
-              id="confirm-dispatch-button"
-            >
-              {dispatchMutation.isPending ? <Spinner size={16} /> : 'Dispatch Now'}
-            </button>
-          </div>
-        }
-      >
-        <p className="muted mb-md">
-          Assign an order to a rider so they can accept, collect from the kitchen, and complete delivery.
-        </p>
-
-        <div className="flex-col gap-md">
-          <label className="field">
-            <span>Select Order to Deliver</span>
-            <select
-              value={selectedOrderId}
-              onChange={(e) => setSelectedOrderId(Number(e.target.value))}
-              required
-              id="dispatch-order-select"
-            >
-              <option value="">-- Choose an Order --</option>
-              {allOrders.map((o) => (
-                <option key={o.id} value={o.id}>
-                  Order #{o.orderNumber.slice(-8)} — {ORDER_STATUS_LABEL[o.status]} ({formatMoney(o.totalAmount)})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Select Rider</span>
-            <select
-              value={selectedRiderId}
-              onChange={(e) => setSelectedRiderId(Number(e.target.value))}
-              required
-              id="dispatch-rider-select"
-            >
-              <option value="">-- Choose a Rider --</option>
-              {riders && riders.length > 0 ? (
-                riders.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.userName} ({r.transportType} - {r.availability ? 'Available' : 'Busy'})
-                  </option>
-                ))
-              ) : (
-                <option value="1">Speedy Rider (ID: 1 - MOTORCYCLE)</option>
-              )}
-            </select>
-          </label>
-        </div>
-      </Modal>
+      <DispatchModal order={dispatching} onClose={() => setDispatching(null)} />
     </div>
   );
 }

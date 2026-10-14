@@ -1,15 +1,16 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ShoppingBag, Trash2, X } from 'lucide-react';
-import { useCart, useCartMutations, useRestaurants } from '../hooks/queries';
-import { formatMoney, cx } from '../lib/format';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, ShoppingBag, Trash2, X } from 'lucide-react';
+import { useCart, useCartMutations, useRestaurants, useRestaurantTypes } from '../hooks/queries';
+import { cx, dishArt, formatMoney } from '../lib/format';
 import { getErrorMessage } from '../api/client';
 import { useToast } from './Toast';
-import { EmptyState, ErrorState, QuantityStepper, SmartImage, Spinner } from './ui';
+import { Art, EmptyState, ErrorState, QuantityStepper, Spinner } from './ui';
 
 export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { data: cart, isPending, error, refetch } = useCart();
   const { data: restaurants } = useRestaurants();
+  const { data: types } = useRestaurantTypes();
   const { update, remove, clear } = useCartMutations();
   const { notify } = useToast();
   const navigate = useNavigate();
@@ -22,6 +23,7 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   }, [open, onClose]);
 
   const restaurant = restaurants?.find((r) => r.id === cart?.restaurantId);
+  const cuisine = types?.find((t) => t.id === restaurant?.typeId)?.name;
   const items = cart?.items ?? [];
   const total = items.reduce((s, i) => s + i.subtotal, 0);
   const minimum = restaurant?.minimumOrderAmount ?? 0;
@@ -32,13 +34,17 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
   return (
     <>
       <div className={cx('drawer-scrim', open && 'is-open')} onClick={onClose} aria-hidden />
-      <aside className={cx('drawer', open && 'is-open')} aria-label="Cart" aria-hidden={!open}>
+      <aside className={cx('drawer', open && 'is-open')} aria-label="Your bag" aria-hidden={!open}>
         <header className="drawer__head">
           <div>
             <h2>Your bag</h2>
-            {cart?.restaurantName && <p className="muted small">from {cart.restaurantName}</p>}
+            {cart?.restaurantName && (
+              <Link to={`/restaurant/${cart.restaurantId}`} className="small muted" onClick={onClose}>
+                from <strong style={{ color: 'var(--text)' }}>{cart.restaurantName}</strong>
+              </Link>
+            )}
           </div>
-          <button className="icon-btn" onClick={onClose} aria-label="Close cart">
+          <button className="icon-btn" onClick={onClose} aria-label="Close bag">
             <X size={18} />
           </button>
         </header>
@@ -50,22 +56,24 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
             <ErrorState error={error} onRetry={refetch} />
           ) : items.length === 0 ? (
             <EmptyState icon={<ShoppingBag size={28} />} title="Your bag is empty">
-              Add something delicious from a restaurant menu.
+              <p>Add something delicious from a restaurant menu.</p>
+              <button className="btn btn--secondary btn--sm" onClick={() => { onClose(); navigate('/'); }}>
+                Browse restaurants
+              </button>
             </EmptyState>
           ) : (
-            <ul className="cart-list">
+            <ul style={{ listStyle: 'none' }}>
               {items.map((item) => (
-                <li key={item.id} className="cart-item">
-                  <SmartImage src={item.dishImageUrl} alt={item.dishName} hints={[cart?.restaurantName]} className="cart-item__img" />
-                  <div className="cart-item__info">
-                    <strong>{item.dishName}</strong>
+                <li key={item.id} className="line-item">
+                  <Art art={dishArt(item.dishName, cuisine, cart?.restaurantName)} src={item.dishImageUrl} className="line-item__art" />
+                  <div>
+                    <div className="line-item__name">{item.dishName}</div>
                     {item.options && item.options.length > 0 && (
-                      <span className="muted small">
+                      <div className="line-item__opts">
                         {item.options.map((o) => `${o.optionName}${o.optionPrice ? ` +${formatMoney(o.optionPrice)}` : ''}`).join(' · ')}
-                      </span>
+                      </div>
                     )}
-                    <span className="muted small">{formatMoney(item.unitPrice)} each</span>
-                    <div className="cart-item__row">
+                    <div className="line-item__foot">
                       <QuantityStepper
                         value={item.quantity}
                         disabled={update.isPending}
@@ -89,14 +97,16 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
 
         {items.length > 0 && (
           <footer className="drawer__foot">
-            <div className="summary-row">
-              <span>Subtotal</span>
-              <strong>{formatMoney(total)}</strong>
+            <div className="totals">
+              <div className="totals__row">
+                <span>Subtotal</span>
+                <strong style={{ color: 'var(--text)' }}>{formatMoney(total)}</strong>
+              </div>
             </div>
             {shortBy > 0 && (
-              <div className="min-order">
-                <div className="min-order__bar"><span style={{ width: `${Math.min(100, (total / minimum) * 100)}%` }} /></div>
-                <span className="small">Add {formatMoney(shortBy)} more to reach the {formatMoney(minimum)} minimum</span>
+              <div className="stack stack--sm">
+                <div className="meter"><span style={{ width: `${Math.min(100, (total / minimum) * 100)}%` }} /></div>
+                <span className="small muted">Add {formatMoney(shortBy)} more to reach the {formatMoney(minimum)} minimum.</span>
               </div>
             )}
             <button
@@ -108,12 +118,12 @@ export function CartDrawer({ open, onClose }: { open: boolean; onClose: () => vo
                 navigate('/checkout');
               }}
             >
-              Go to checkout · {formatMoney(total)}
+              Go to checkout <ArrowRight size={18} />
             </button>
             <button
-              className="btn btn--text btn--block"
+              className="btn btn--ghost btn--sm"
               disabled={clear.isPending}
-              onClick={() => clear.mutate(undefined, { onError: onErr, onSuccess: () => notify('Cart cleared') })}
+              onClick={() => clear.mutate(undefined, { onError: onErr, onSuccess: () => notify('Bag cleared') })}
             >
               Clear bag
             </button>

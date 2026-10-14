@@ -252,6 +252,10 @@ export interface OrderResponse {
   deliveredAt?: string | null;
   cancelledAt?: string | null;
   items: OrderItemResponse[];
+  // Added to the backend DTO in Oct 2026; optional so older deploys still type-check.
+  restaurantName?: string | null;
+  deliveryAddress?: string | null;
+  createdAt?: string | null;
 }
 
 export interface OrderItemResponse {
@@ -358,6 +362,7 @@ export interface RiderProfileResponse {
   userId: number;
   userName?: string;
   userPhone?: string;
+  userEmail?: string;
   transportType: TransportType;
   availability: boolean;
   status: string;
@@ -387,11 +392,11 @@ export interface RatingRequest {
 
 export interface RatingResponse {
   id: number;
+  userId?: number;
   orderId: number;
   restaurantId: number;
   score: number;
-  comment?: string;
-  createdAt?: string;
+  comment?: string | null;
 }
 
 // ==========================================

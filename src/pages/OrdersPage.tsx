@@ -1,166 +1,154 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ChevronRight, Clock, ShoppingBag, Utensils } from 'lucide-react';
+import { ArrowRight, Receipt, RotateCcw, Utensils } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
-import { useOrders, useRestaurants } from '../hooks/queries';
-import { Badge, EmptyState, ErrorState, LoadingState, SmartImage } from '../components/ui';
-import {
-  ORDER_STATUS_LABEL,
-  ORDER_STATUS_TONE,
-  TERMINAL_STATUSES,
-  formatDateTime,
-  formatMoney,
-} from '../lib/format';
+import { useOrders, useReorder, useRestaurants, useRestaurantTypes } from '../hooks/queries';
+import { useToast } from '../components/Toast';
+import { useCartDrawer } from '../components/Layout';
+import { orderProgress } from '../components/OrderProgress';
+import { Art, EmptyState, ErrorState, LoadingState, Segmented, Spinner, StatusBadge, useDocumentTitle } from '../components/ui';
+import { ORDER_STATUS_COPY, formatDay, formatMoney, formatTime, isLiveOrder, restaurantArt, shortOrderNo } from '../lib/format';
+import { getErrorMessage } from '../api/client';
+import type { OrderResponse } from '../types/api';
+
+type Tab = 'ALL' | 'DELIVERED' | 'CANCELLED';
 
 export default function OrdersPage() {
+  useDocumentTitle('Your orders');
   const { user } = useAuth();
-  const [tab, setTab] = useState<'ALL' | 'ACTIVE' | 'COMPLETED'>('ALL');
-
-  const { data: orders, isPending, error, refetch } = useOrders(
-    { userId: user?.id },
-    { enabled: Boolean(user?.id), poll: 12_000 }
-  );
+  const [tab, setTab] = useState<Tab>('ALL');
+  const { data: orders, isPending, error, refetch } = useOrders({ userId: user?.id }, { enabled: Boolean(user?.id), poll: 10_000 });
   const { data: restaurants } = useRestaurants();
+  const { data: types } = useRestaurantTypes();
+  const reorder = useReorder();
+  const drawer = useCartDrawer();
+  const { notify } = useToast();
 
   if (isPending) return <LoadingState label="Loading your orders…" />;
-  if (error) {
-    return (
-      <div className="container section">
-        <ErrorState error={error} onRetry={refetch} />
-      </div>
-    );
-  }
+  if (error) return <div className="container page"><ErrorState error={error} onRetry={refetch} /></div>;
 
-  const allOrders = orders ?? [];
-  const filtered = allOrders.filter((order) => {
-    const isFinished = TERMINAL_STATUSES.includes(order.status);
-    if (tab === 'ACTIVE') return !isFinished;
-    if (tab === 'COMPLETED') return isFinished;
-    return true;
-  });
+  const all = orders ?? [];
+  const live = all.filter((o) => isLiveOrder(o.status));
+  const past = all.filter((o) => !isLiveOrder(o.status));
+  const shown = past.filter((o) =>
+    tab === 'ALL' ? true : tab === 'DELIVERED' ? o.status === 'DELIVERED' || o.status === 'COMPLETED' : o.status === 'CANCELLED' || o.status === 'DECLINED',
+  );
 
-  const getRestName = (restId: number) => {
-    const r = restaurants?.find((x) => x.id === restId);
-    return r?.name ?? `Restaurant #${restId}`;
+  const info = (o: OrderResponse) => {
+    const r = restaurants?.find((x) => x.id === o.restaurantId);
+    const name = o.restaurantName ?? r?.name ?? `Restaurant #${o.restaurantId}`;
+    return { name, art: restaurantArt(types?.find((t) => t.id === r?.typeId)?.name, name), logo: r?.logoUrl };
   };
 
-  const getRestImg = (restId: number) => {
-    const r = restaurants?.find((x) => x.id === restId);
-    return r?.logoUrl;
-  };
+  const doReorder = (o: OrderResponse) =>
+    reorder.mutate(o, {
+      onSuccess: ({ skipped }) => {
+        notify(skipped ? `Added to your bag — ${skipped} item(s) are no longer available.` : 'Added to your bag', 'success');
+        drawer.open();
+      },
+      onError: (e) => notify(getErrorMessage(e, 'Could not reorder'), 'error'),
+    });
+
+  // Group past orders under day headings.
+  let lastDay = '';
 
   return (
-    <div className="container section orders-history-page">
-      <div className="section-head row-between flex-wrap gap-md">
+    <div className="container page">
+      <div className="page-head">
         <div>
-          <h1>Your Orders</h1>
-          <p className="muted">Track live deliveries and view past meals</p>
-        </div>
-
-        <div className="chips">
-          <button
-            className={`chip-btn ${tab === 'ALL' ? 'is-active' : ''}`}
-            onClick={() => setTab('ALL')}
-          >
-            All ({allOrders.length})
-          </button>
-          <button
-            className={`chip-btn ${tab === 'ACTIVE' ? 'is-active' : ''}`}
-            onClick={() => setTab('ACTIVE')}
-          >
-            Active (
-            {allOrders.filter((o) => !TERMINAL_STATUSES.includes(o.status)).length}
-            )
-          </button>
-          <button
-            className={`chip-btn ${tab === 'COMPLETED' ? 'is-active' : ''}`}
-            onClick={() => setTab('COMPLETED')}
-          >
-            Completed (
-            {allOrders.filter((o) => TERMINAL_STATUSES.includes(o.status)).length}
-            )
-          </button>
+          <span className="eyebrow"><Receipt size={14} /> Orders</span>
+          <h1 style={{ marginTop: 6 }}>Your orders</h1>
+          <p>{all.length ? `${all.length} orders · ${formatMoney(past.filter((o) => o.status === 'DELIVERED' || o.status === 'COMPLETED').reduce((s, o) => s + Number(o.totalAmount), 0))} delivered so far` : 'Live deliveries and everything you have ordered before.'}</p>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon={<ShoppingBag size={32} />}
-          title={tab === 'ALL' ? 'No orders yet' : `No ${tab.toLowerCase()} orders`}
-        >
-          <p className="mb-md">When you place an order, you can follow its live preparation and delivery right here.</p>
-          <Link to="/" className="btn btn--primary">
-            <Utensils size={16} /> Explore Menus
-          </Link>
+      {all.length === 0 ? (
+        <EmptyState icon={<Utensils size={28} />} title="No orders yet" boxed>
+          <p>When you order, you can follow the kitchen and your rider live from here.</p>
+          <Link to="/" className="btn btn--primary">Find something to eat</Link>
         </EmptyState>
       ) : (
-        <div className="orders-list flex-col gap-md">
-          {filtered.map((order) => {
-            const restName = getRestName(order.restaurantId);
-            const isLive = !TERMINAL_STATUSES.includes(order.status);
-            return (
-              <Link
-                key={order.id}
-                to={`/orders/${order.id}`}
-                className={`card order-card ${isLive ? 'order-card--live' : ''}`}
-              >
-                <div className="order-card__header row-between flex-wrap gap-sm">
-                  <div className="row items-center gap-md">
-                    <SmartImage
-                      src={getRestImg(order.restaurantId)}
-                      alt={restName}
-                      hints={[restName]}
-                      className="order-card__avatar"
-                    />
-                    <div>
-                      <h3 className="font-semibold text-base">{restName}</h3>
-                      <div className="muted text-xs row items-center gap-xs">
-                        <Clock size={12} />
-                        <span>Order #{order.orderNumber.slice(-8)}</span>
-                        <span>•</span>
-                        <span>
-                          {order.acceptedAt
-                            ? formatDateTime(order.acceptedAt)
-                            : 'Order in progress'}
-                        </span>
+        <>
+          {live.length > 0 && (
+            <section className="stack" aria-label="Live orders" style={{ marginBottom: 32 }}>
+              {live.map((o) => {
+                const { name, art, logo } = info(o);
+                return (
+                  <Link key={o.id} to={`/orders/${o.id}`} className="card card--hover order-live">
+                    <Art art={art} src={logo} className="order-live__art" />
+                    <div className="stack stack--sm" style={{ minWidth: 0 }}>
+                      <div className="row row--wrap">
+                        <StatusBadge status={o.status} />
+                        <span className="mono small muted">#{shortOrderNo(o.orderNumber)}</span>
                       </div>
+                      <h3>{ORDER_STATUS_COPY[o.status][0]}</h3>
+                      <span className="small muted truncate">{name} · {o.items.map((i) => `${i.quantity}× ${i.dishName}`).join(', ')}</span>
+                      <div className="meter" style={{ maxWidth: 420 }}><span style={{ width: `${Math.max(6, orderProgress(o.status) * 100)}%` }} /></div>
                     </div>
-                  </div>
+                    <span className="btn btn--primary btn--sm">Track live <ArrowRight size={15} /></span>
+                  </Link>
+                );
+              })}
+            </section>
+          )}
 
-                  <div className="row items-center gap-sm">
-                    <Badge tone={ORDER_STATUS_TONE[order.status]} dot>
-                      {ORDER_STATUS_LABEL[order.status]}
-                    </Badge>
-                  </div>
+          {past.length > 0 && (
+            <section aria-label="Past orders">
+              <div className="section-head">
+                <h2>Past orders</h2>
+                <Segmented<Tab>
+                  label="Filter past orders"
+                  value={tab}
+                  onChange={setTab}
+                  options={[
+                    { value: 'ALL', label: 'All', count: past.length },
+                    { value: 'DELIVERED', label: 'Delivered' },
+                    { value: 'CANCELLED', label: 'Cancelled' },
+                  ]}
+                />
+              </div>
+              {shown.length === 0 ? (
+                <p className="muted state">Nothing here.</p>
+              ) : (
+                <div className="stack stack--sm">
+                  {shown.map((o) => {
+                    const { name, art, logo } = info(o);
+                    const day = formatDay(o.createdAt);
+                    const heading = day !== lastDay ? day : null;
+                    lastDay = day;
+                    const delivered = o.status === 'DELIVERED' || o.status === 'COMPLETED';
+                    return (
+                      <Fragment key={o.id}>
+                        {heading && <h3 className="date-label">{heading}</h3>}
+                        <div className="card order-row">
+                          <Art art={art} src={logo} className="order-row__art" />
+                          <Link to={`/orders/${o.id}`} style={{ minWidth: 0 }}>
+                            <div className="row row--wrap">
+                              <strong>{name}</strong>
+                              <StatusBadge status={o.status} />
+                            </div>
+                            <p className="small muted truncate">{o.items.map((i) => `${i.quantity}× ${i.dishName}`).join(', ')}</p>
+                            <p className="tiny faint">
+                              {formatTime(o.createdAt)} · <span className="mono">#{shortOrderNo(o.orderNumber)}</span> · {formatMoney(o.totalAmount)}
+                            </p>
+                          </Link>
+                          <div className="order-row__actions">
+                            {delivered && (
+                              <button className="btn btn--secondary btn--sm" disabled={reorder.isPending} onClick={() => doReorder(o)}>
+                                {reorder.isPending && reorder.variables?.id === o.id ? <Spinner size={14} /> : <RotateCcw size={14} />} Reorder
+                              </button>
+                            )}
+                            <Link to={`/orders/${o.id}`} className="btn btn--ghost btn--sm">Details</Link>
+                          </div>
+                        </div>
+                      </Fragment>
+                    );
+                  })}
                 </div>
-
-                <div className="order-card__body mt-sm">
-                  <div className="order-card__items muted text-sm">
-                    {order.items
-                      .map((i) => `${i.quantity}× ${i.dishName}`)
-                      .join(', ')}
-                  </div>
-                </div>
-
-                <div className="order-card__footer row-between items-center mt-md pt-sm border-t">
-                  <div className="row items-center gap-md">
-                    <span className="font-bold text-accent">
-                      {formatMoney(order.totalAmount)}
-                    </span>
-                    <span className="muted text-xs">
-                      {order.items.reduce((acc, i) => acc + i.quantity, 0)} items
-                    </span>
-                  </div>
-
-                  <span className="row items-center gap-xs text-sm font-semibold text-accent hover-underline">
-                    {isLive ? 'Track Live Order' : 'View Details'}
-                    <ChevronRight size={16} />
-                  </span>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+              )}
+            </section>
+          )}
+        </>
       )}
     </div>
   );

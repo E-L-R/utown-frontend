@@ -1,295 +1,218 @@
-import { useState } from 'react';
-import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query';
-import {
-  Bike,
-  CheckCircle2,
-  Clock,
-  Compass,
-  Package,
-  Plus,
-  Store,
-  Truck,
-} from 'lucide-react';
-import { deliveryApi } from '../api/endpoints';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Banknote, Bike, CheckCircle2, Clock, Flag, MapPin, Package, Power, Store, Trophy } from 'lucide-react';
+import { deliveryApi, orderApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
 import { useAuth } from '../auth/AuthContext';
-import { useRiderProfile } from '../hooks/queries';
-import { useTrackedAssignments } from '../hooks/trackedAssignments';
+import { qk, useInvalidateOrders, useMyAssignments, useRestaurants, useRiderProfile } from '../hooks/queries';
 import { useToast } from '../components/Toast';
-import { Badge, EmptyState, ErrorState, LoadingState, Spinner } from '../components/ui';
+import { Badge, EmptyState, ErrorState, LoadingState, Spinner, Stat, useDocumentTitle } from '../components/ui';
 import {
+  ACTIVE_ASSIGNMENT,
   ASSIGNMENT_LABEL,
   ASSIGNMENT_TONE,
-  formatDateTime,
+  TRANSPORT_LABEL,
+  cx,
+  formatMoney,
+  formatTime,
+  initials,
+  parseServerDate,
+  shortOrderNo,
 } from '../lib/format';
 import type { DeliveryAssignmentResponse } from '../types/api';
 
-export default function RiderDashboardPage() {
-  const { user } = useAuth();
-  const { data: riderProfile, isPending: riderLoading, error: riderError } = useRiderProfile();
-  const { ids: trackedIds, add: trackId } = useTrackedAssignments(riderProfile?.id);
-  const { notify } = useToast();
+const STEP: Record<string, number> = { ASSIGNED: 0, ACCEPTED: 1, PICKED_UP: 2, DELIVERED: 3 };
+
+function JobCard({ job }: { job: DeliveryAssignmentResponse }) {
+  const { data: restaurants } = useRestaurants();
+  // Riders can read the order they're delivering (address, items, note).
+  const { data: order } = useQuery({ queryKey: qk.order(job.orderId), queryFn: () => orderApi.get(job.orderId), refetchInterval: 8_000 });
   const qc = useQueryClient();
+  const invalidate = useInvalidateOrders();
+  const { notify } = useToast();
+  const restaurant = restaurants?.find((r) => r.id === job.restaurantId);
+  const step = STEP[job.status] ?? 0;
+  const kitchenReady = order?.status === 'READY_FOR_PICKUP';
 
-  const [manualIdInput, setManualIdInput] = useState('');
-
-  // Fetch all assignments by tracked IDs
-  const assignmentQueries = useQueries({
-    queries: trackedIds.map((id) => ({
-      queryKey: ['assignment', id],
-      queryFn: () => deliveryApi.get(id),
-      refetchInterval: 6_000,
-    })),
-  });
-
-  const acceptMutation = useMutation({
-    mutationFn: (id: number) => deliveryApi.accept(id),
-    onSuccess: (data) => {
-      qc.setQueryData(['assignment', data.id], data);
-      notify('Delivery accepted! Head to the restaurant.', 'success');
+  const act = useMutation({
+    mutationFn: () => (job.status === 'ASSIGNED' ? deliveryApi.accept(job.id) : job.status === 'ACCEPTED' ? deliveryApi.pickup(job.id) : deliveryApi.deliver(job.id)),
+    onSuccess: (updated) => {
+      qc.setQueryData<DeliveryAssignmentResponse[]>(qk.myAssignments, (prev) => prev?.map((a) => (a.id === updated.id ? updated : a)));
+      invalidate();
+      qc.invalidateQueries({ queryKey: qk.order(job.orderId) });
+      qc.invalidateQueries({ queryKey: ['rider'] });
+      notify(
+        { ACCEPTED: 'Job accepted — head to the restaurant', PICKED_UP: 'Picked up — off to the customer', DELIVERED: 'Delivered! Nice work.' }[updated.status as string] ?? 'Updated',
+        'success',
+      );
     },
-    onError: (err) => notify(getErrorMessage(err, 'Failed to accept delivery'), 'error'),
+    onError: (e) => notify(getErrorMessage(e, 'Could not update the job'), 'error'),
   });
 
-  const pickupMutation = useMutation({
-    mutationFn: (id: number) => deliveryApi.pickup(id),
-    onSuccess: (data) => {
-      qc.setQueryData(['assignment', data.id], data);
-      notify('Order picked up! Now en route to customer.', 'success');
-    },
-    onError: (err) => notify(getErrorMessage(err, 'Failed to mark picked up'), 'error'),
-  });
-
-  const deliverMutation = useMutation({
-    mutationFn: (id: number) => deliveryApi.deliver(id),
-    onSuccess: (data) => {
-      qc.setQueryData(['assignment', data.id], data);
-      notify('Order successfully delivered! Great job!', 'success');
-    },
-    onError: (err) => notify(getErrorMessage(err, 'Failed to mark delivered'), 'error'),
-  });
-
-  if (riderLoading) return <LoadingState label="Loading rider profile…" />;
-  if (riderError) {
-    return (
-      <div className="container section">
-        <ErrorState error={riderError} title="Could not load rider profile" />
-      </div>
-    );
-  }
-
-  const assignments = assignmentQueries
-    .map((q) => q.data)
-    .filter((a): a is DeliveryAssignmentResponse => Boolean(a))
-    .sort((a, b) => b.id - a.id);
-
-  const activeDeliveries = assignments.filter((a) => a.status !== 'DELIVERED' && a.status !== 'CANCELLED');
-  const pastDeliveries = assignments.filter((a) => a.status === 'DELIVERED' || a.status === 'CANCELLED');
-
-  const handleAddManualId = (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsed = Number(manualIdInput.trim());
-    if (parsed && Number.isInteger(parsed)) {
-      trackId(parsed);
-      setManualIdInput('');
-      notify(`Tracking assignment #${parsed}`, 'info');
-    }
-  };
+  const action =
+    job.status === 'ASSIGNED'
+      ? { label: 'Accept job', icon: CheckCircle2, cls: 'btn--primary', disabled: false, hint: 'The restaurant is waiting for confirmation.' }
+      : job.status === 'ACCEPTED'
+        ? {
+            label: kitchenReady ? 'Picked up the order' : 'Waiting for the kitchen…',
+            icon: Package,
+            cls: 'btn--primary',
+            disabled: !kitchenReady,
+            hint: kitchenReady ? 'Order is packed and waiting at the counter.' : 'You can pick up once the kitchen marks it ready.',
+          }
+        : { label: 'Mark as delivered', icon: Flag, cls: 'btn--success', disabled: false, hint: 'Hand it over, then confirm.' };
 
   return (
-    <div className="container section rider-dashboard">
-      <div className="section-head row-between flex-wrap gap-md">
-        <div>
-          <div className="row items-center gap-xs text-accent text-sm font-semibold mb-xs">
-            <Bike size={18} /> Rider Courier Portal
+    <article className="job" id={`job-${job.id}`}>
+      <header className="job__head">
+        <span className="avatar avatar--lg role--rider"><Bike size={20} /></span>
+        <div className="grow">
+          <div className="row row--wrap">
+            <Badge tone={ASSIGNMENT_TONE[job.status]} dot live>{ASSIGNMENT_LABEL[job.status]}</Badge>
+            <span className="mono small muted">#{shortOrderNo(job.orderNumber, job.orderId)}</span>
           </div>
-          <h1>Deliveries Dashboard</h1>
-          <p className="muted">
-            Accept assignments, pick up from restaurants, and complete drop-offs.
-          </p>
+          <h2 style={{ marginTop: 4 }}>{job.restaurantName ?? restaurant?.name}</h2>
         </div>
+        {order && <strong className="nowrap">{formatMoney(order.totalAmount)}</strong>}
+      </header>
+      <div className="job__body">
+        <ol className="route">
+          <li className={cx(step === 1 && 'is-active', step >= 2 && 'is-done')}>
+            <span className="route__pin"><Store size={15} /></span>
+            <span>
+              <span className="route__label">Pick up</span>
+              <span className="route__place" style={{ display: 'block' }}>{job.restaurantName ?? restaurant?.name}</span>
+              <span className="small muted">{restaurant?.address ?? 'Restaurant address'}{restaurant?.phone ? ` · ${restaurant.phone}` : ''}</span>
+            </span>
+          </li>
+          <li className={cx(step === 2 && 'is-active', step >= 3 && 'is-done')}>
+            <span className="route__pin"><MapPin size={15} /></span>
+            <span>
+              <span className="route__label">Drop off</span>
+              <span className="route__place" style={{ display: 'block' }}>{order?.deliveryAddress ?? 'Loading address…'}</span>
+              {order?.deliveryNote && <span className="small" style={{ color: 'var(--warn)' }}>“{order.deliveryNote}”</span>}
+            </span>
+          </li>
+        </ol>
+        <div className="stack stack--sm">
+          <span className="route__label">In the bag</span>
+          {order ? (
+            <ul className="ticket__items">
+              {order.items.map((i) => (
+                <li key={i.id}><b>{i.quantity}×</b><span>{i.dishName}</span></li>
+              ))}
+            </ul>
+          ) : (
+            <Spinner />
+          )}
+          {order?.paymentMethod === 'CASH' && (
+            <div className="notice" style={{ marginTop: 6 }}><Banknote size={16} /> Collect {formatMoney(order.totalAmount)} in cash</div>
+          )}
+        </div>
+      </div>
+      <footer className="job__foot">
+        <div className="job-steps" aria-hidden>
+          {[0, 1, 2].map((i) => <span key={i} className={cx(step > i && 'is-on')} />)}
+        </div>
+        <button className={cx('btn btn--xl btn--block', action.cls)} disabled={action.disabled || act.isPending} onClick={() => act.mutate()} id={`job-action-${job.id}`}>
+          {act.isPending ? <Spinner /> : <><action.icon size={20} /> {action.label}</>}
+        </button>
+        <p className="small muted center" style={{ marginTop: 10 }}>{action.hint}</p>
+      </footer>
+    </article>
+  );
+}
 
-        {riderProfile && (
-          <div className="rider-status-card row items-center gap-md p-sm bg-surface rounded-xl border">
-            <div className="role-icon role-icon--rider">
-              <Bike size={20} />
-            </div>
-            <div>
-              <div className="font-semibold text-sm">
-                {riderProfile.userName ?? user?.name}
-              </div>
-              <div className="row items-center gap-xs text-xs muted">
-                <span>{riderProfile.transportType}</span>
-                <span>•</span>
-                <span className="text-success font-medium">
-                  {riderProfile.availability ? 'Online & Available' : 'Offline'}
+export default function RiderDashboardPage() {
+  useDocumentTitle('Deliveries');
+  const { user } = useAuth();
+  const profile = useRiderProfile();
+  const jobs = useMyAssignments(Boolean(profile.data));
+  const qc = useQueryClient();
+  const { notify } = useToast();
+
+  const toggle = useMutation({
+    mutationFn: (availability: boolean) => deliveryApi.setAvailability(profile.data!.id, availability),
+    onSuccess: (p) => {
+      qc.setQueryData(qk.rider(user?.id), p);
+      notify(p.availability ? 'You’re online — dispatch can send you jobs' : 'You’re offline', p.availability ? 'success' : 'info');
+    },
+    onError: (e) => notify(getErrorMessage(e, 'Could not change status'), 'error'),
+  });
+
+  if (profile.isPending) return <LoadingState label="Loading your rider profile…" />;
+  if (profile.error) return <div className="container page"><ErrorState error={profile.error} title="Could not load rider profile" /></div>;
+
+  const rider = profile.data!;
+  const all = [...(jobs.data ?? [])].sort((a, b) => b.id - a.id);
+  const active = all.filter((a) => ACTIVE_ASSIGNMENT.includes(a.status));
+  const done = all.filter((a) => a.status === 'DELIVERED');
+  const today = done.filter((a) => parseServerDate(a.deliveredAt)?.toDateString() === new Date().toDateString());
+  const onJob = active.length > 0;
+  const online = rider.availability || onJob;
+
+  return (
+    <div className="container page">
+      <div className="page-head">
+        <div className="row" style={{ gap: 14 }}>
+          <span className="avatar avatar--xl role--rider">{initials(rider.userName ?? user?.name)}</span>
+          <div>
+            <span className="eyebrow"><Bike size={14} /> Rider app</span>
+            <h1 style={{ marginTop: 4 }}>Hi, {(rider.userName ?? user?.name ?? 'rider').split(' ')[0]}</h1>
+            <p style={{ marginTop: 2 }}>{TRANSPORT_LABEL[rider.transportType]} courier · Seoul</p>
+          </div>
+        </div>
+        <div className={cx('online-card', online && 'is-online')}>
+          <Power size={18} className={online ? '' : 'muted'} style={online ? { color: 'var(--success)' } : undefined} />
+          <span>
+            <strong style={{ display: 'block' }}>{onJob ? 'On a delivery' : online ? 'Online' : 'Offline'}</strong>
+            <span className="small muted">{onJob ? 'Finish this job to get the next one' : online ? 'Waiting for dispatch' : 'Go online to receive jobs'}</span>
+          </span>
+          <label className="switch" style={{ marginLeft: 8 }}>
+            <input type="checkbox" checked={online} disabled={onJob || toggle.isPending} onChange={(e) => toggle.mutate(e.target.checked)} aria-label="Online" id="rider-online-toggle" />
+            <span className="switch__track" />
+          </label>
+        </div>
+      </div>
+
+      <div className="stats" style={{ marginBottom: 24 }}>
+        <Stat icon={<Package size={14} />} label="Active" value={active.length} hint={onJob ? 'In progress' : 'No job right now'} />
+        <Stat icon={<CheckCircle2 size={14} />} label="Delivered today" value={today.length} />
+        <Stat icon={<Trophy size={14} />} label="All-time" value={done.length} hint="Completed deliveries" />
+        <Stat icon={<Clock size={14} />} label="Last drop-off" value={done[0]?.deliveredAt ? formatTime(done[0].deliveredAt) : '—'} />
+      </div>
+
+      {jobs.isPending ? (
+        <LoadingState label="Checking for jobs…" />
+      ) : jobs.error ? (
+        <ErrorState error={jobs.error} onRetry={() => jobs.refetch()} />
+      ) : active.length ? (
+        <div className="stack stack--lg">{active.map((j) => <JobCard key={j.id} job={j} />)}</div>
+      ) : (
+        <EmptyState icon={<Bike size={28} />} title={online ? 'Waiting for your next job' : 'You’re offline'} boxed>
+          <p>
+            {online
+              ? 'When a kitchen calls a rider or operations dispatches you, the job pops up here automatically.'
+              : 'Flip the switch above to start receiving delivery jobs.'}
+          </p>
+        </EmptyState>
+      )}
+
+      {done.length > 0 && (
+        <section className="section">
+          <div className="section-head"><h2>Completed trips</h2></div>
+          <div className="stack stack--sm">
+            {done.slice(0, 10).map((a) => (
+              <div key={a.id} className="card mini-job">
+                <span className="kv__icon"><Flag size={16} /></span>
+                <span className="grow">
+                  <strong>{a.restaurantName}</strong>
+                  <span className="small muted" style={{ display: 'block' }}>#{shortOrderNo(a.orderNumber, a.orderId)} · delivered {formatTime(a.deliveredAt)}</span>
                 </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Manual Assignment Tracker & Quick Action Bar */}
-      <div className="panel bg-surface-subtle p-md mt-md">
-        <form onSubmit={handleAddManualId} className="row items-center gap-sm flex-wrap">
-          <span className="text-sm font-medium row items-center gap-xs">
-            <Compass size={16} /> Track Assignment by ID:
-          </span>
-          <input
-            type="number"
-            placeholder="Assignment ID (e.g. 1)"
-            value={manualIdInput}
-            onChange={(e) => setManualIdInput(e.target.value)}
-            className="input-sm rounded px-sm py-xs border"
-            style={{ width: '220px' }}
-          />
-          <button type="submit" className="btn btn--primary btn--sm" disabled={!manualIdInput.trim()}>
-            <Plus size={14} /> Add
-          </button>
-          <span className="muted text-xs ml-auto">
-            Tip: You can also dispatch orders to this rider from the <strong>Admin Dashboard</strong>.
-          </span>
-        </form>
-      </div>
-
-      {/* Active Assignments */}
-      <div className="mt-lg">
-        <h2 className="text-xl mb-md row items-center gap-xs">
-          <Truck size={20} /> Active Assignments ({activeDeliveries.length})
-        </h2>
-
-        {activeDeliveries.length === 0 ? (
-          <EmptyState
-            icon={<Bike size={32} />}
-            title="No active deliveries"
-          >
-            <p>You have no active orders to pick up or deliver right now. New dispatch jobs will appear here.</p>
-          </EmptyState>
-        ) : (
-          <div className="grid grid--orders">
-            {activeDeliveries.map((assignment) => {
-              const isAssigned = assignment.status === 'ASSIGNED';
-              const isAccepted = assignment.status === 'ACCEPTED';
-              const isPickedUp = assignment.status === 'PICKED_UP';
-
-              return (
-                <div key={assignment.id} className="card order-manage-card">
-                  <div className="order-manage-card__head row-between items-start">
-                    <div>
-                      <span className="mono font-semibold text-sm">
-                        Assignment #{assignment.id}
-                      </span>
-                      <div className="muted text-xs row items-center gap-xs mt-xs">
-                        <Clock size={12} />
-                        <span>Order #{assignment.orderNumber ? assignment.orderNumber.slice(-8) : assignment.orderId}</span>
-                      </div>
-                    </div>
-
-                    <Badge tone={ASSIGNMENT_TONE[assignment.status]} dot>
-                      {ASSIGNMENT_LABEL[assignment.status]}
-                    </Badge>
-                  </div>
-
-                  <div className="my-sm flex-col gap-xs text-sm">
-                    <div className="row items-center gap-xs font-medium">
-                      <Store size={15} className="text-accent" />
-                      <span>{assignment.restaurantName || `Restaurant #${assignment.restaurantId}`}</span>
-                    </div>
-
-                    {assignment.assignedAt && (
-                      <div className="text-xs muted row items-center gap-xs mt-xs">
-                        <span>Assigned at {formatDateTime(assignment.assignedAt)}</span>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Rider Workflow Buttons */}
-                  <div className="order-actions-row row gap-sm mt-md pt-sm border-t">
-                    {isAssigned && (
-                      <button
-                        className="btn btn--primary btn--sm btn--block"
-                        disabled={acceptMutation.isPending}
-                        onClick={() => acceptMutation.mutate(assignment.id)}
-                        id={`accept-assignment-${assignment.id}`}
-                      >
-                        {acceptMutation.isPending ? (
-                          <Spinner size={14} />
-                        ) : (
-                          <>
-                            <CheckCircle2 size={14} /> Accept Assignment
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {isAccepted && (
-                      <button
-                        className="btn btn--primary btn--sm btn--block"
-                        disabled={pickupMutation.isPending}
-                        onClick={() => pickupMutation.mutate(assignment.id)}
-                        id={`pickup-assignment-${assignment.id}`}
-                      >
-                        {pickupMutation.isPending ? (
-                          <Spinner size={14} />
-                        ) : (
-                          <>
-                            <Package size={14} /> Picked Up from Kitchen
-                          </>
-                        )}
-                      </button>
-                    )}
-
-                    {isPickedUp && (
-                      <button
-                        className="btn btn--success btn--sm btn--block"
-                        disabled={deliverMutation.isPending}
-                        onClick={() => deliverMutation.mutate(assignment.id)}
-                        id={`deliver-assignment-${assignment.id}`}
-                      >
-                        {deliverMutation.isPending ? (
-                          <Spinner size={14} />
-                        ) : (
-                          <>
-                            <CheckCircle2 size={14} /> Mark Delivered to Customer
-                          </>
-                        )}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Completed Deliveries */}
-      {pastDeliveries.length > 0 && (
-        <div className="mt-xl">
-          <h3 className="text-lg mb-md text-secondary">
-            Completed Trips ({pastDeliveries.length})
-          </h3>
-          <div className="grid grid--orders">
-            {pastDeliveries.map((assignment) => (
-              <div key={assignment.id} className="card p-md opacity-80">
-                <div className="row-between items-center">
-                  <div>
-                    <span className="mono text-xs font-semibold">
-                      Assignment #{assignment.id}
-                    </span>
-                    <div className="font-semibold text-sm mt-xs">
-                      {assignment.restaurantName || `Restaurant #${assignment.restaurantId}`}
-                    </div>
-                  </div>
-                  <Badge tone={ASSIGNMENT_TONE[assignment.status]}>
-                    {ASSIGNMENT_LABEL[assignment.status]}
-                  </Badge>
-                </div>
+                <Badge tone="success">Delivered</Badge>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
     </div>
   );
