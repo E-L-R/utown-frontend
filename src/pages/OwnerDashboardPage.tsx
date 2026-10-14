@@ -290,7 +290,7 @@ export default function OwnerDashboardPage() {
           <p className="small muted" style={{ marginBottom: 10 }}>Other kitchens in this demo are run by a second owner account:</p>
           <div className="restaurant-tabs">
             {others.map((r) => (
-              <button key={r.id} className="restaurant-tab" disabled={switching !== null} onClick={() => switchTo('RESTAURANT_OWNER', '/kitchen', { ownerId: r.ownerId })}>
+              <button key={r.id} className="restaurant-tab" disabled={switching !== null} onClick={() => switchTo('RESTAURANT_OWNER', '/kitchen', { userId: r.ownerId })}>
                 <Art art={restaurantArt(types?.find((t) => t.id === r.typeId)?.name, r.name)} src={r.logoUrl} />
                 {r.name}
                 {switching ? <Spinner size={14} /> : <span className="muted small">Open →</span>}

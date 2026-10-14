@@ -21,6 +21,8 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
   { role: 'RESTAURANT_OWNER', label: 'Restaurant', name: 'Restaurant Owner 1', phone: '01022222222', password: 'password123', blurb: 'Run the kitchen board' },
   { role: 'RESTAURANT_OWNER', label: 'Restaurant', name: 'Restaurant Owner 2', phone: '01022222223', password: 'password123', blurb: 'Run the kitchen board', hidden: true },
   { role: 'RIDER', label: 'Rider', name: 'Speedy Rider', phone: '01044444444', password: 'password123', blurb: 'Pick up and deliver' },
+  { role: 'RIDER', label: 'Rider', name: 'Jisoo Han', phone: '01044444445', password: 'password123', blurb: 'Bicycle courier', hidden: true },
+  { role: 'RIDER', label: 'Rider', name: 'Marco Silva', phone: '01044444446', password: 'password123', blurb: 'Car courier', hidden: true },
   { role: 'ADMIN', label: 'Operations', name: 'Ops admin', phone: '01011111111', password: 'password123', blurb: 'Dispatch riders, watch the platform' },
 ];
 

@@ -84,7 +84,8 @@ export function DemoTour() {
                   onClick={async () => {
                     setPendingStep(i);
                     const recent = lastOrder();
-                    if (s.role === 'RESTAURANT_OWNER') await switchTo(s.role, s.to, { ownerId: recent?.ownerId });
+                    if (s.role === 'RESTAURANT_OWNER') await switchTo(s.role, s.to, { userId: recent?.ownerId });
+                    else if (s.role === 'RIDER') await switchTo(s.role, s.to, { userId: recent?.riderUserId });
                     else if (i === STEPS.length - 1 && recent) await switchTo(s.role, `/orders/${recent.id}`);
                     else await switchTo(s.role, s.to);
                     setPendingStep(null);

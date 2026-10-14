@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banknote, Bike, CheckCircle2, Clock, Flag, MapPin, Package, Power, Store, Trophy } from 'lucide-react';
 import { deliveryApi, orderApi } from '../api/endpoints';
 import { getErrorMessage } from '../api/client';
-import { useAuth } from '../auth/AuthContext';
+import { DEMO_ACCOUNTS, useAuth } from '../auth/AuthContext';
+import { useSwitchRole } from '../auth/useSwitchRole';
 import { qk, useInvalidateOrders, useMyAssignments, useRestaurants, useRiderProfile } from '../hooks/queries';
 import { useToast } from '../components/Toast';
 import { Badge, EmptyState, ErrorState, LoadingState, Spinner, Stat, useDocumentTitle } from '../components/ui';
@@ -129,6 +131,8 @@ export default function RiderDashboardPage() {
   const jobs = useMyAssignments(Boolean(profile.data));
   const qc = useQueryClient();
   const { notify } = useToast();
+  const { switchTo, pending: switching } = useSwitchRole();
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
 
   const toggle = useMutation({
     mutationFn: (availability: boolean) => deliveryApi.setAvailability(profile.data!.id, availability),
@@ -196,6 +200,36 @@ export default function RiderDashboardPage() {
           </p>
         </EmptyState>
       )}
+
+      <section className="section" aria-label="Other demo riders">
+        <p className="small muted" style={{ marginBottom: 10 }}>
+          Job went to someone else? This demo has three riders — switch to see their app:
+        </p>
+        <div className="restaurant-tabs">
+          {DEMO_ACCOUNTS.filter((a) => a.role === 'RIDER').map((a) => {
+            const me = (rider.userPhone ?? user?.phone ?? '').replace(/\D/g, '').replace(/^82/, '0') === a.phone;
+            return (
+              <button
+                key={a.phone}
+                className={cx('restaurant-tab', me && 'is-active')}
+                disabled={me || switching !== null}
+                id={`switch-rider-${a.phone}`}
+                onClick={async () => {
+                  setSwitchingTo(a.phone);
+                  await switchTo('RIDER', '/rider', { phone: a.phone });
+                  setSwitchingTo(null);
+                }}
+              >
+                <span className="avatar role--rider" style={{ width: 30, height: 30, fontSize: 11 }}>
+                  {switchingTo === a.phone ? <Spinner size={14} /> : initials(a.name)}
+                </span>
+                {a.name}
+                {me && <span className="muted small">You</span>}
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {done.length > 0 && (
         <section className="section">

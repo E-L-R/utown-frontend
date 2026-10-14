@@ -6,6 +6,8 @@ import { getErrorMessage } from '../api/client';
 import { ROLE_HOME, ROLE_LABEL } from '../lib/format';
 import type { UserProfileResponse, UserRole } from '../types/api';
 
+const normalize = (p?: string | null) => (p ?? '').replace(/\D/g, '').replace(/^82/, '0');
+
 /** user id per demo phone, learned on sign-in, so we can pick "the owner of restaurant X". */
 const IDS_KEY = 'utown.demoIds';
 function readIds(): Record<string, number> {
@@ -25,14 +27,20 @@ function rememberId(phone: string, id: number) {
 
 /** The most recent order placed in this browser, so the tour can open the right kitchen. */
 const LAST_ORDER_KEY = 'utown.lastOrder';
-export function rememberLastOrder(order: { id: number; restaurantId: number; ownerId?: number }) {
+type LastOrder = { id: number; restaurantId: number; ownerId?: number; riderUserId?: number };
+export function rememberLastOrder(order: LastOrder) {
   try {
     localStorage.setItem(LAST_ORDER_KEY, JSON.stringify(order));
   } catch {
     /* not persisted */
   }
 }
-export function lastOrder(): { id: number; restaurantId: number; ownerId?: number } | null {
+/** Record which rider got the job, so the tour can sign in as them. */
+export function rememberDispatch(orderId: number, riderUserId: number) {
+  const prev = lastOrder();
+  if (prev?.id === orderId) rememberLastOrder({ ...prev, riderUserId });
+}
+export function lastOrder(): LastOrder | null {
   try {
     return JSON.parse(localStorage.getItem(LAST_ORDER_KEY) ?? 'null');
   } catch {
@@ -47,20 +55,26 @@ export function useSwitchRole() {
   const navigate = useNavigate();
   const [pending, setPending] = useState<UserRole | null>(null);
 
-  /** `ownerId` picks the demo owner of a specific restaurant when there are several. */
-  const switchTo = async (role: UserRole, to?: string, opts: { ownerId?: number } = {}) => {
-    const wantOwner = role === 'RESTAURANT_OWNER' && opts.ownerId != null;
-    if (user?.role === role && (!wantOwner || user.id === opts.ownerId)) {
+  /**
+   * `userId` picks the demo account with that user id (e.g. the owner of a restaurant, or the rider
+   * a job went to); `phone` picks one account directly. Otherwise the role's default account is used.
+   */
+  const switchTo = async (role: UserRole, to?: string, opts: { userId?: number; phone?: string } = {}) => {
+    const wantId = opts.userId;
+    const sameAccount = opts.phone ? normalize(user?.phone) === opts.phone : wantId == null || user?.id === wantId;
+    if (user?.role === role && sameAccount) {
       navigate(to ?? ROLE_HOME[role]);
       return true;
     }
 
     const ids = readIds();
     let candidates = DEMO_ACCOUNTS.filter((a) => a.role === role);
-    if (wantOwner) {
-      // Known match first, unknown ids next, known mismatches last.
-      const rank = (phone: string) => (ids[phone] === opts.ownerId ? 0 : ids[phone] == null ? 1 : 2);
-      candidates = [...candidates].sort((a, b) => rank(a.phone) - rank(b.phone));
+    if (opts.phone) {
+      candidates = candidates.filter((a) => a.phone === opts.phone);
+    } else if (wantId != null) {
+      // Known match first, unknown ids next; known mismatches are skipped.
+      const rank = (phone: string) => (ids[phone] === wantId ? 0 : 1);
+      candidates = candidates.filter((a) => ids[a.phone] == null || ids[a.phone] === wantId).sort((a, b) => rank(a.phone) - rank(b.phone));
     } else {
       candidates = candidates.filter((a) => !a.hidden);
     }
@@ -69,10 +83,9 @@ export function useSwitchRole() {
     try {
       let me: UserProfileResponse | null = null;
       for (const acct of candidates) {
-        if (wantOwner && ids[acct.phone] != null && ids[acct.phone] !== opts.ownerId) continue;
         me = await login(acct.phone, acct.password);
         rememberId(acct.phone, me.id);
-        if (!wantOwner || me.id === opts.ownerId) break;
+        if (wantId == null || opts.phone || me.id === wantId) break;
       }
       if (!me) throw new Error('No demo account for that role');
       notify(`You're now the ${ROLE_LABEL[me.role].toLowerCase()} — ${me.name}`, 'success');

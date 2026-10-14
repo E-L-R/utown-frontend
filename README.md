@@ -14,7 +14,7 @@ Open the **Demo tour** (bottom-left) — each step signs you in as a seeded acco
 
 1. **Customer** — pick a restaurant, customise a dish (required / optional option groups), check out.
 2. **Restaurant** — the ticket lands on the kitchen board. Accept it with a prep time, start cooking, mark it ready, call a rider.
-3. **Rider** — the job appears in the rider app. Accept, pick up (only once the kitchen marks it ready), deliver.
+3. **Rider** — the job appears in the app of whichever rider was dispatched (the tour signs in as them; the rider app can switch between all three). Accept, pick up (only once the kitchen marks it ready), deliver.
 4. **Customer** — the tracking page has followed every step live. Leave a review; it shows up on the restaurant page.
 
 Operations (admin) can watch it all from the control room and dispatch riders from a queue.
@@ -63,5 +63,7 @@ All passwords are `password123`.
 | Customer | 01033333333 |
 | Restaurant owner 1 (Pizza, Korean, Noodles, Café) | 01022222222 |
 | Restaurant owner 2 (Burger, Chicken, Sushi) | 01022222223 |
-| Rider | 01044444444 |
+| Rider — Speedy Rider (scooter) | 01044444444 |
+| Rider — Jisoo Han (bicycle) | 01044444445 |
+| Rider — Marco Silva (car) | 01044444446 |
 | Operations | 01011111111 |

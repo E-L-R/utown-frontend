@@ -6,6 +6,7 @@ import { getErrorMessage } from '../api/client';
 import { useInvalidateOrders, useRiders } from '../hooks/queries';
 import { TRANSPORT_LABEL, cx, initials, shortOrderNo } from '../lib/format';
 import { useToast } from './Toast';
+import { rememberDispatch } from '../auth/useSwitchRole';
 import { EmptyState, Modal, Spinner } from './ui';
 import type { OrderResponse } from '../types/api';
 
@@ -29,6 +30,8 @@ export function DispatchModal({ order, onClose }: { order: OrderResponse | null;
   const dispatch = useMutation({
     mutationFn: () => deliveryApi.create({ orderId: order!.id, riderId: riderId! }),
     onSuccess: (a) => {
+      const rider = riders?.find((r) => r.id === a.riderId);
+      if (rider) rememberDispatch(a.orderId, rider.userId);
       invalidate();
       notify(`${a.riderName ?? 'Rider'} is on the job`, 'success');
       onClose();
