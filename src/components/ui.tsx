@@ -33,40 +33,81 @@ export function useDocumentTitle(title?: string) {
   }, [title]);
 }
 
-/** Render's free tier cold-starts in ~30 s; tell people after a few seconds. */
-function useSlowHint(delay = 4000) {
-  const [slow, setSlow] = useState(false);
+/**
+ * The API sleeps on Render's free tier and can take a couple of minutes to wake. Rather than an
+ * unexplained spinner, say what's happening once a request is clearly slower than normal.
+ */
+function useWaitStage() {
+  const [stage, setStage] = useState(0);
   useEffect(() => {
-    const t = window.setTimeout(() => setSlow(true), delay);
-    return () => window.clearTimeout(t);
-  }, [delay]);
-  return slow;
+    const timers = [window.setTimeout(() => setStage(1), 3_000), window.setTimeout(() => setStage(2), 25_000)];
+    return () => timers.forEach(window.clearTimeout);
+  }, []);
+  return stage;
+}
+
+/** Inline "why is this slow" note; renders nothing for the first few seconds. */
+export function SlowServerHint() {
+  const stage = useWaitStage();
+  if (stage === 0) return null;
+  return (
+    <p className="slow-hint" role="status">
+      <Spinner size={14} />
+      {stage === 1
+        ? 'Waking up the server — the free hosting sleeps when idle, so the first load can take a minute or two.'
+        : 'Still starting up. This only happens on the first visit after a quiet spell.'}
+    </p>
+  );
 }
 
 export function LoadingState({ label = 'Loading…' }: { label?: string }) {
-  const slow = useSlowHint();
   return (
     <div className="state" role="status">
-      <Spinner size={28} />
+      <Spinner size={24} />
       <p>{label}</p>
-      {slow && <p className="small">Waking up the server — the first request can take up to 30 seconds.</p>}
+      <SlowServerHint />
     </div>
   );
 }
 
 export function SkeletonGrid({ count = 6 }: { count?: number }) {
   return (
-    <div className="rest-grid" aria-hidden>
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="card skeleton-card">
-          <div className="skeleton" />
-          <div className="stack--sm stack" style={{ padding: 16 }}>
-            <div className="skeleton" style={{ height: 18, width: '60%' }} />
-            <div className="skeleton" style={{ height: 14, width: '90%' }} />
-            <div className="skeleton" style={{ height: 14, width: '40%' }} />
+    <>
+      <SlowServerHint />
+      <div className="rest-grid" aria-hidden>
+        {Array.from({ length: count }, (_, i) => (
+          <div key={i} className="card skeleton-card">
+            <div className="skeleton" />
+            <div className="stack--sm stack" style={{ padding: 16 }}>
+              <div className="skeleton" style={{ height: 18, width: '60%' }} />
+              <div className="skeleton" style={{ height: 14, width: '90%' }} />
+              <div className="skeleton" style={{ height: 14, width: '40%' }} />
+            </div>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
+    </>
+  );
+}
+
+/** Placeholder rows shaped like the menu, shown under the restaurant header while dishes load. */
+export function MenuSkeleton() {
+  return (
+    <div className="menu-section" aria-busy="true" aria-label="Loading menu">
+      <SlowServerHint />
+      <div className="skeleton" style={{ height: 22, width: 160, marginTop: 8 }} />
+      <div className="dish-grid" aria-hidden>
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} className="card dish">
+            <div className="stack stack--sm">
+              <div className="skeleton" style={{ height: 16, width: '55%' }} />
+              <div className="skeleton" style={{ height: 13, width: '90%' }} />
+              <div className="skeleton" style={{ height: 13, width: '30%', marginTop: 8 }} />
+            </div>
+            <div className="skeleton dish__media" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -98,7 +139,7 @@ export function EmptyState({ icon, title, children, boxed }: { icon: ReactNode; 
   );
 }
 
-/** A photo when we have a matching one, otherwise an emoji "plate" on a cuisine-tinted gradient. */
+/** A photo when we have a matching one, otherwise a plain tile with an outline icon. */
 export function Art({ art, src, alt = '', className, style }: { art: ArtSpec; src?: string | null; alt?: string; className?: string; style?: CSSProperties }) {
   const remote = src && /^https?:\/\//.test(src) && !src.includes('example.com') ? src : null;
   const [failed, setFailed] = useState(false);
@@ -106,14 +147,13 @@ export function Art({ art, src, alt = '', className, style }: { art: ArtSpec; sr
     setFailed(false);
   }, [remote]);
   const photo = (!failed && remote) || art.photo;
+  const Icon = art.icon;
   return (
-    <div className={cx('art', photo && 'art--photo', className)} style={{ '--hue': art.hue, ...style } as CSSProperties}>
+    <div className={cx('art', photo && 'art--photo', className)} style={style}>
       {photo ? (
         <img src={photo} alt={alt} loading="lazy" onError={() => remote && setFailed(true)} />
       ) : (
-        <span className="art__emoji" role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={!alt}>
-          {art.emoji}
-        </span>
+        <Icon className="art__icon" strokeWidth={1.5} role={alt ? 'img' : undefined} aria-label={alt || undefined} aria-hidden={!alt} />
       )}
     </div>
   );

@@ -6,7 +6,7 @@ UTown is a working food-delivery marketplace for Seoul. One React app serves fou
 customer storefront, a restaurant kitchen board, a rider app and an operations console — all on the
 same order lifecycle, backed by a real Spring Boot API.
 
-> The backend runs on Render's free tier, so the very first request after a quiet period can take ~30 s while it wakes up.
+> The backend runs on Render's free tier, so the very first request after a quiet period can take a minute or two while it wakes up. The app pings the API as soon as it loads and explains the wait on screen; the optional `keep-backend-warm` GitHub Action keeps it awake.
 
 ## Try the whole flow in two minutes
 

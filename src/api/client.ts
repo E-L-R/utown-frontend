@@ -26,8 +26,9 @@ export const tokenStore = {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  // Render free tier can cold-start; give it time.
-  timeout: 60_000,
+  // A Render cold start can take ~2 minutes. Each attempt waits 45 s and queries retry
+  // twice, but only for hangs and gateway errors (see isTransientError) — real errors fail fast.
+  timeout: 45_000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -38,6 +39,21 @@ apiClient.interceptors.request.use((config) => {
   }
   return config;
 });
+
+/**
+ * Fire-and-forget ping sent at startup, before route chunks load, so a sleeping
+ * Render instance starts booting as early as possible.
+ */
+export function warmUpServer() {
+  fetch(`${API_BASE_URL}/actuator/health`, { mode: 'no-cors', cache: 'no-store' }).catch(() => {});
+}
+
+/** True for failures worth retrying: timeouts, network drops and gateway errors while the server wakes. */
+export function isTransientError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return false;
+  const status = err.response?.status;
+  return !status || status === 502 || status === 503 || status === 504;
+}
 
 type RetriableConfig = InternalAxiosRequestConfig & { _retry?: boolean };
 

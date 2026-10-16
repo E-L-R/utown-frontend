@@ -1,13 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ArrowRight, Bike, ChefHat, LayoutDashboard, Search, SearchX, Sparkles, UserRound, X } from 'lucide-react';
+import { ArrowRight, Bike, ChefHat, LayoutDashboard, Search, SearchX, UserRound, X } from 'lucide-react';
 import { useOrders, useRestaurantSearch, useRestaurantTypes, useRestaurants } from '../hooks/queries';
 import { useAuth } from '../auth/AuthContext';
 import { useSwitchRole } from '../auth/useSwitchRole';
 import { RestaurantCard } from '../components/RestaurantCard';
 import { orderProgress, statusIcon } from '../components/OrderProgress';
-import { Art, EmptyState, ErrorState, SkeletonGrid, Spinner, useDocumentTitle } from '../components/ui';
-import { ORDER_STATUS_LABEL, cx, isLiveOrder, restaurantArt } from '../lib/format';
+import { EmptyState, ErrorState, SkeletonGrid, Spinner, useDocumentTitle } from '../components/ui';
+import { ORDER_STATUS_LABEL, cx, isLiveOrder } from '../lib/format';
 import type { RestaurantResponse, UserRole } from '../types/api';
 
 type Sort = 'recommended' | 'rating' | 'fastest' | 'minimum';
@@ -52,7 +52,7 @@ function HowItWorks() {
   const { switchTo, pending } = useSwitchRole();
   return (
     <section className="how" aria-labelledby="how-title">
-      <span className="eyebrow"><Sparkles size={14} /> Portfolio demo</span>
+      <span className="eyebrow">Portfolio demo</span>
       <h2 id="how-title" style={{ fontSize: '1.7rem', marginTop: 8 }}>One order, four apps</h2>
       <p className="muted" style={{ maxWidth: 620, marginTop: 6 }}>
         UTown is a working delivery marketplace. Every role below is a real account on the Spring Boot API, so you can place an order and push it
@@ -105,7 +105,6 @@ export default function CatalogPage() {
   }, [all.data, search.data, keyword, typeId, openOnly, sort, types]);
 
   const usedTypes = types?.filter((t) => all.data?.some((r) => r.typeId === t.id)) ?? [];
-  const openCount = all.data?.filter((r) => r.status === 'OPEN' && r.isOpenNow).length ?? 0;
   const loading = all.isPending || (keyword && search.isPending);
 
   return (
@@ -113,16 +112,11 @@ export default function CatalogPage() {
       <section className="hero">
         <img src="/images/hero.webp" alt="" className="hero__img" fetchPriority="high" />
         <div className="hero__content">
-          <span className="eyebrow"><Sparkles size={14} /> Seoul · delivered in ~30 min</span>
-          <h1>
-            Seoul's best kitchens,
-            <br />
-            <span>at your door.</span>
-          </h1>
+          <h1>Seoul's best kitchens, at your door.</h1>
           <p className="hero__sub">
             {user?.role === 'CUSTOMER'
               ? `Hi ${user.name.split(' ')[0]} — what are you craving today?`
-              : 'Order from local favourites and watch every step — kitchen, rider, doorstep — in real time.'}
+              : 'Order from local favourites and follow every step, from kitchen to doorstep.'}
           </p>
           <form
             className="hero__search"
@@ -136,32 +130,25 @@ export default function CatalogPage() {
             <input key={keyword} name="q" defaultValue={keyword} placeholder="Try “bibimbap”, “pizza” or “chicken”" aria-label="Search" id="hero-search" />
             <button className="btn btn--primary" type="submit">Search</button>
           </form>
-          <div className="hero__stats">
-            <div><strong>{all.data?.length ?? '—'}</strong><span>restaurants</span></div>
-            <div><strong>{openCount || '—'}</strong><span>open right now</span></div>
-            <div><strong>4</strong><span>roles to try</span></div>
-          </div>
         </div>
       </section>
 
       {user?.role === 'CUSTOMER' && <LiveOrderBanner />}
 
-      <section className="section" aria-label="Cuisines">
+      <section className="section section--snug" aria-label="Cuisines">
         <div className="cuisine-rail">
-          <button className={cx('cuisine', typeId == null && 'is-active')} onClick={() => setTypeId(null)}>
-            <Art art={{ emoji: '✨', hue: 24 }} className="cuisine__emoji" />
+          <button className={cx('chip-btn', typeId == null && 'is-active')} onClick={() => setTypeId(null)}>
             All
           </button>
           {usedTypes.map((t) => (
-            <button key={t.id} className={cx('cuisine', typeId === t.id && 'is-active')} onClick={() => setTypeId(typeId === t.id ? null : t.id)}>
-              <Art art={{ ...restaurantArt(t.name), photo: undefined }} className="cuisine__emoji" />
-              <span className="truncate" style={{ maxWidth: '100%' }}>{t.name}</span>
+            <button key={t.id} className={cx('chip-btn', typeId === t.id && 'is-active')} onClick={() => setTypeId(typeId === t.id ? null : t.id)}>
+              {t.name}
             </button>
           ))}
         </div>
       </section>
 
-      <section className="section" style={{ marginTop: 20 }}>
+      <section className="section" style={{ marginTop: 16 }}>
         <div className="section-head">
           <div>
             <h2>{keyword ? <>Results for “{keyword}”</> : typeId ? `${typeName(typeId)} near you` : 'Restaurants near you'}</h2>
@@ -178,7 +165,7 @@ export default function CatalogPage() {
               <span className="switch__track" />
               Open now
             </label>
-            <select className="select" style={{ width: 'auto', minHeight: 38, borderRadius: 999, fontWeight: 600, fontSize: 14, paddingTop: 6, paddingBottom: 6 }} value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort restaurants">
+            <select className="select select--sm" value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort restaurants">
               {Object.entries(SORTS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
             </select>
           </div>

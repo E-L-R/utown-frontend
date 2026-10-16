@@ -6,7 +6,7 @@ import { ToastProvider } from './components/Toast';
 import { Layout } from './components/Layout';
 import { RequireRole } from './components/RequireRole';
 import { LoadingState } from './components/ui';
-import { getErrorStatus } from './api/client';
+import { isTransientError } from './api/client';
 import CatalogPage from './pages/CatalogPage';
 
 // Role dashboards are split out so customers only download the storefront.
@@ -23,11 +23,9 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: (failureCount, error) => {
-        const status = getErrorStatus(error);
-        if (status && status >= 400 && status < 500) return false;
-        return failureCount < 2;
-      },
+      // Only keep retrying while the server looks asleep; 4xx/5xx responses surface immediately.
+      retry: (failureCount, error) => failureCount < 2 && isTransientError(error),
+      retryDelay: 1_000,
       refetchOnWindowFocus: false,
     },
   },

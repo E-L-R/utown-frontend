@@ -1,3 +1,7 @@
+import {
+  Beef, Citrus, Coffee, Cookie, CookingPot, Croissant, CupSoda, Drumstick, EggFried, Fish, Hamburger,
+  IceCreamBowl, Pizza, Salad, Soup, UtensilsCrossed, Wheat, type LucideIcon,
+} from 'lucide-react';
 import type { DeliveryAssignmentStatus, OrderStatus, PaymentMethod, TransportType, UserRole } from '../types/api';
 
 const CURRENCY = import.meta.env.VITE_CURRENCY || 'KRW';
@@ -169,56 +173,53 @@ export const ROLE_HOME: Record<UserRole, string> = {
 };
 
 // ---------- Artwork ----------
-// The demo backend has no real photography, so we pair a handful of local photos with
-// emoji "plates" on a cuisine-tinted gradient. Photos are only used when they match.
+// The demo backend has no real photography, so we pair a handful of local photos with a plain
+// tile carrying an outline icon. Photos are only used when they match.
 
 export interface Art {
   photo?: string;
-  emoji: string;
-  hue: number;
+  icon: LucideIcon;
 }
 
 const CUISINES: { re: RegExp; art: Art }[] = [
-  { re: /pizza|pizzeria|margherita|pepperoni|funghi/i, art: { photo: '/images/pizza.webp', emoji: '🍕', hue: 14 } },
-  { re: /burger|smash/i, art: { photo: '/images/burger.webp', emoji: '🍔', hue: 32 } },
-  { re: /sushi|nigiri|japanese|maki|dragon roll|tuna roll/i, art: { photo: '/images/sushi.webp', emoji: '🍣', hue: 350 } },
-  { re: /noodle|ramen|naengmyeon|jjajang|kalguksu|jjamppong|udon/i, art: { photo: '/images/noodles.webp', emoji: '🍜', hue: 40 } },
-  { re: /bowl|bibimbap|korean|bulgogi/i, art: { photo: '/images/bowl.webp', emoji: '🍲', hue: 150 } },
-  { re: /chicken|wing/i, art: { emoji: '🍗', hue: 24 } },
-  { re: /caf[eé]|dessert|bingsu|coffee/i, art: { emoji: '🍧', hue: 280 } },
+  { re: /pizza|pizzeria|margherita|pepperoni|funghi/i, art: { photo: '/images/pizza.webp', icon: Pizza } },
+  { re: /burger|smash/i, art: { photo: '/images/burger.webp', icon: Hamburger } },
+  { re: /sushi|nigiri|japanese|maki|dragon roll|tuna roll/i, art: { photo: '/images/sushi.webp', icon: Fish } },
+  { re: /noodle|ramen|naengmyeon|jjajang|kalguksu|jjamppong|udon/i, art: { photo: '/images/noodles.webp', icon: Soup } },
+  { re: /bowl|bibimbap|korean|bulgogi/i, art: { photo: '/images/bowl.webp', icon: CookingPot } },
+  { re: /chicken|wing/i, art: { icon: Drumstick } },
+  { re: /caf[eé]|dessert|bingsu|coffee/i, art: { icon: Coffee } },
 ];
 
-const DISH_EMOJI: [RegExp, string][] = [
-  [/fries/i, '🍟'],
-  [/salad/i, '🥗'],
-  [/lemonade|lemon/i, '🍋'],
-  [/knot|bread/i, '🥖'],
-  [/shake/i, '🥤'],
-  [/wing|chicken/i, '🍗'],
-  [/radish/i, '🥢'],
-  [/cheese ball/i, '🧀'],
-  [/fried rice/i, '🍳'],
-  [/japchae/i, '🍝'],
-  [/pajeon|pancake/i, '🥞'],
-  [/bingsu/i, '🍧'],
-  [/croffle|waffle/i, '🧇'],
-  [/latte|coffee|espresso|dalgona/i, '☕'],
-  [/beef|bulgogi/i, '🥩'],
+const DISH_ICON: [RegExp, LucideIcon][] = [
+  [/salad/i, Salad],
+  [/lemonade|lemon/i, Citrus],
+  [/knot|bread/i, Wheat],
+  [/shake/i, CupSoda],
+  [/wing|chicken/i, Drumstick],
+  [/cheese ball/i, Cookie],
+  [/fried rice/i, EggFried],
+  [/japchae/i, Soup],
+  [/pajeon|pancake/i, EggFried],
+  [/bingsu/i, IceCreamBowl],
+  [/croffle|waffle/i, Croissant],
+  [/latte|coffee|espresso|dalgona/i, Coffee],
+  [/beef|bulgogi/i, Beef],
 ];
 
 /** Artwork for a restaurant, from its cuisine type and name. */
 export function restaurantArt(...hints: (string | null | undefined)[]): Art {
   const text = hints.filter(Boolean).join(' ');
-  return CUISINES.find((c) => c.re.test(text))?.art ?? { emoji: '🍽️', hue: 20 };
+  return CUISINES.find((c) => c.re.test(text))?.art ?? { icon: UtensilsCrossed };
 }
 
-/** Artwork for a dish: a photo only when the dish itself matches; otherwise an emoji plate. */
+/** Artwork for a dish: a photo only when the dish itself matches; otherwise an icon tile. */
 export function dishArt(name: string, ...cuisineHints: (string | null | undefined)[]): Art {
   const base = restaurantArt(...cuisineHints);
-  const emoji = DISH_EMOJI.find(([re]) => re.test(name))?.[1];
-  if (emoji) return { emoji, hue: base.hue };
+  const icon = DISH_ICON.find(([re]) => re.test(name))?.[1];
+  if (icon) return { icon };
   const own = CUISINES.find((c) => c.re.test(name))?.art;
-  return own ?? { emoji: base.emoji, hue: base.hue };
+  return own ?? { icon: base.icon };
 }
 
 export const cx = (...classes: (string | false | null | undefined)[]) => classes.filter(Boolean).join(' ');

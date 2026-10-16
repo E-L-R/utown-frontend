@@ -7,7 +7,7 @@ import { useSwitchRole } from '../auth/useSwitchRole';
 import { useToast } from '../components/Toast';
 import { useCartDrawer } from '../components/Layout';
 import { DishOptionsModal } from '../components/DishOptionsModal';
-import { Art, Badge, EmptyState, ErrorState, LoadingState, Modal, Spinner, Stars, useDocumentTitle } from '../components/ui';
+import { Art, Badge, EmptyState, ErrorState, MenuSkeleton, Modal, Spinner, Stars, useDocumentTitle } from '../components/ui';
 import { cx, dishArt, formatMoney, restaurantArt } from '../lib/format';
 import { getErrorMessage } from '../api/client';
 import type { MenuDish } from '../types/api';
@@ -40,8 +40,9 @@ export default function RestaurantPage() {
 
   const restaurant = restaurants?.find((r) => r.id === id);
   const cuisine = types?.find((t) => t.id === restaurant?.typeId)?.name;
-  const name = menu.data?.restaurantName ?? restaurant?.name ?? 'Restaurant';
-  useDocumentTitle(name);
+  const knownName = menu.data?.restaurantName ?? restaurant?.name;
+  const name = knownName ?? 'Restaurant';
+  useDocumentTitle(knownName);
 
   const categories = useMemo(
     () =>
@@ -111,20 +112,18 @@ export default function RestaurantPage() {
   const isOpen = (menu.data?.restaurantStatus ?? restaurant?.status) === 'OPEN' && (restaurant?.isOpenNow ?? true);
   const reviews = (ratings.data ?? []).filter((r) => r.comment);
 
-  if (menu.isPending) return <LoadingState label="Loading menu…" />;
-  if (menu.error) return <div className="container page"><ErrorState error={menu.error} onRetry={() => menu.refetch()} /></div>;
-
   return (
     <>
       <section className="r-hero">
         <Art art={restaurantArt(cuisine, name)} src={restaurant?.logoUrl} />
         <div className="container r-hero__content">
           <Link to="/" className="back-link"><ArrowLeft size={16} /> All restaurants</Link>
+          {/* Details come from the (usually cached) restaurant list, so they show while the menu is still loading. */}
           <div className="row row--wrap">
-            <Badge tone={isOpen ? 'success' : 'solid'} dot>{isOpen ? 'Open now' : 'Closed'}</Badge>
+            {(menu.data || restaurant) && <Badge tone={isOpen ? 'success' : 'solid'} dot>{isOpen ? 'Open now' : 'Closed'}</Badge>}
             {cuisine && <Badge tone="solid">{cuisine}</Badge>}
           </div>
-          <h1>{name}</h1>
+          {knownName ? <h1>{knownName}</h1> : <div className="skeleton r-hero__skeleton" aria-label="Loading restaurant" />}
           {restaurant?.description && <p>{restaurant.description}</p>}
           <div className="r-facts">
             {restaurant && Number(restaurant.averageRating) > 0 && (
@@ -174,13 +173,17 @@ export default function RestaurantPage() {
           </section>
         )}
 
-        {!isOpen && (
+        {menu.data && !isOpen && (
           <div className="notice" style={{ marginTop: 12 }}>
             <Clock size={16} /> This restaurant is closed right now. You can browse the menu, but ordering is paused.
           </div>
         )}
 
-        {categories.length === 0 ? (
+        {menu.isPending ? (
+          <MenuSkeleton />
+        ) : menu.error ? (
+          <ErrorState error={menu.error} onRetry={() => menu.refetch()} title="Couldn't load the menu" />
+        ) : categories.length === 0 ? (
           <EmptyState icon={<UtensilsCrossed size={28} />} title="No dishes yet">This restaurant hasn't published a menu.</EmptyState>
         ) : (
           categories.map((c) => (

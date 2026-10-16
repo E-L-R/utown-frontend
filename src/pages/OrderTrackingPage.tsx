@@ -219,7 +219,7 @@ export default function OrderTrackingPage() {
 
           <section className="panel" aria-label="Receipt">
             <header className="panel__head">
-              <h2><Art art={restaurantArt(cuisine, restaurantName)} style={{ width: 30, height: 30, borderRadius: 9, '--emoji': '16px' } as CSSProperties} /> {restaurantName}</h2>
+              <h2><Art art={restaurantArt(cuisine, restaurantName)} style={{ width: 30, height: 30, borderRadius: 6, '--art-size': '16px' } as CSSProperties} /> {restaurantName}</h2>
               <span className="small muted">{order.items.reduce((n, i) => n + i.quantity, 0)} items</span>
             </header>
             <ul style={{ listStyle: 'none' }}>
