@@ -40,7 +40,7 @@ export function useDocumentTitle(title?: string) {
 function useWaitStage() {
   const [stage, setStage] = useState(0);
   useEffect(() => {
-    const timers = [window.setTimeout(() => setStage(1), 3_000), window.setTimeout(() => setStage(2), 25_000)];
+    const timers = [3_000, 25_000, 150_000].map((ms, i) => window.setTimeout(() => setStage(i + 1), ms));
     return () => timers.forEach(window.clearTimeout);
   }, []);
   return stage;
@@ -54,8 +54,10 @@ export function SlowServerHint() {
     <p className="slow-hint" role="status">
       <Spinner size={14} />
       {stage === 1
-        ? 'Waking up the server — the free hosting sleeps when idle, so the first load can take a minute or two.'
-        : 'Still starting up. This only happens on the first visit after a quiet spell.'}
+        ? 'Waking up the server — the free hosting sleeps when idle, so the first load can take a few minutes.'
+        : stage === 2
+          ? 'Still starting up. This only happens on the first visit after a quiet spell.'
+          : 'Nearly there — a cold start can take up to five minutes. Thanks for waiting.'}
     </p>
   );
 }

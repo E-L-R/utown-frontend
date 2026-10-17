@@ -26,9 +26,9 @@ export const tokenStore = {
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
-  // A Render cold start can take ~2 minutes. Each attempt waits 45 s and queries retry
-  // twice, but only for hangs and gateway errors (see isTransientError) — real errors fail fast.
-  timeout: 45_000,
+  // A Render cold start can take several minutes. Each attempt waits 90 s (so one-off actions like
+  // signing in survive a wake-up) and queries retry hangs and gateway errors — real errors fail fast.
+  timeout: 90_000,
   headers: { 'Content-Type': 'application/json' },
 });
 

@@ -23,8 +23,8 @@ const NotFoundPage = lazy(() => import('./pages/NotFoundPage'));
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Only keep retrying while the server looks asleep; 4xx/5xx responses surface immediately.
-      retry: (failureCount, error) => failureCount < 2 && isTransientError(error),
+      // Keep retrying (~6 minutes in total) only while the server looks asleep; 4xx/5xx responses surface immediately.
+      retry: (failureCount, error) => failureCount < 3 && isTransientError(error),
       retryDelay: 1_000,
       refetchOnWindowFocus: false,
     },
